@@ -1,0 +1,18 @@
+{
+  "name": "cast-app",
+  "productName": "Cast to Fire TV",
+  "version": "0.2.0",
+  "description": "Mirror your PC screen and audio to a Fire TV Stick over the local network",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node server.js",
+    "app": "electron .",
+    "pack": "electron-packager . CastApp --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --prune=true --ignore=\"^/(dist|dist-new|firetv-app|release|README.md)\""
+  },
+  "dependencies": { "ws": "^8.18.0" },
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
+    "electron": "^33.2.0"
+  }
+}

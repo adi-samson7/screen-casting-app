@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-new/
+release/
+firetv-app/build/
+firetv-app/app/build/
+firetv-app/.gradle/
+firetv-app/.kotlin/
+*.apk
+*.aab
+
+# Machine-specific config (contains local SDK path)
+firetv-app/local.properties
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and env
+*.log
+npm-debug.log*
+.env
+.env.*
+
+# Temp / test output
+tmp/
+*.tmp

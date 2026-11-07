@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cast to Fire TV</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; display: flex; justify-content: center; padding: 60px 16px; }
+  .card { background: #1b1b1f; border-radius: 16px; padding: 32px; width: 380px; box-shadow: 0 8px 30px #0008; }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  p { color: #9a9aa5; margin: 0 0 22px; font-size: 14px; }
+  input { width: 100%; box-sizing: border-box; font-size: 28px; letter-spacing: 8px; text-align: center; padding: 12px; border-radius: 10px; border: 1px solid #333; background: #0e0e10; color: #fff; }
+  button { width: 100%; margin-top: 14px; padding: 14px; font-size: 16px; border: 0; border-radius: 10px; cursor: pointer; background: #ff9900; color: #111; font-weight: 600; }
+  button.stop { background: #e5484d; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { margin-top: 16px; font-size: 14px; color: #9a9aa5; min-height: 20px; text-align: center; }
+  .panel { margin-top: 18px; padding: 12px 14px; background: #0e0e10; border-radius: 10px; }
+  .row { display: grid; grid-template-columns: 1fr auto 110px 38px; gap: 8px; align-items: center; margin: 8px 0; font-size: 13px; color: #bbb; }
+  .row input[type=range] { padding: 0; width: 100%; accent-color: #ff9900; }
+  .mute { width: 34px; margin: 0; padding: 4px; font-size: 16px; background: #26262c; border-radius: 8px; }
+  .mute.off { opacity: .5; }
+  .pct { text-align: right; font-size: 12px; color: #9a9aa5; }
+  .note { font-size: 11px; color: #6c6c78; }
+  label { display: flex; gap: 8px; align-items: center; margin-top: 14px; font-size: 14px; color: #bbb; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Cast to Fire TV</h1>
+  <p id="intro">Open the Cast Receiver app on your Fire TV, choose this PC, then enter the 6-digit code shown on the TV.</p>
+  <input id="code" inputmode="numeric" maxlength="6" placeholder="------" autofocus>
+  <label><input type="checkbox" id="audio" checked style="width:auto;margin:0"> Share audio (in a browser, tick “Share system audio” in the picker)</label>
+  <label>Quality
+    <select id="quality" style="flex:1;padding:6px;background:#0e0e10;color:#eee;border:1px solid #333;border-radius:8px">
+      <option value="smooth">Smooth – 720p · 30 fps · 3 Mbps (weak Wi-Fi)</option>
+      <option value="balanced" selected>Balanced – 1080p · 30 fps · 6 Mbps</option>
+      <option value="sharp">Sharp – 1080p · 30 fps · 10 Mbps (text, slides)</option>
+      <option value="motion">Fast motion – 1080p · 60 fps · 12 Mbps (games, sport)</option>
+    </select>
+  </label>
+  <label title="A still screen normally drops the stream to ~1 fps, so the picture is slow to wake up when something moves. This keeps the full frame rate going (it costs very little network, a bit of CPU/GPU).">
+    <input type="checkbox" id="smooth" checked style="width:auto;margin:0"> Always smooth (no lag when the screen wakes up; 30 fps modes)
+  </label>
+  <div class="panel">
+    <div class="row">
+      <span class="who">Fire TV / Bluetooth</span>
+      <button class="mute" id="tvMute" title="Mute / unmute Fire TV">🔊</button>
+      <input type="range" id="tvVol" min="0" max="100" value="100">
+      <span class="pct" id="tvPct">100%</span>
+    </div>
+    <div class="row">
+      <span class="who">This laptop</span>
+      <button class="mute" id="pcMute" title="Mute / unmute laptop">🔊</button>
+      <input type="range" id="pcVol" min="0" max="100" value="50">
+      <span class="pct" id="pcPct">–</span>
+    </div>
+    <div id="pcNote" class="note">Laptop controls change Windows' master volume.</div>
+  </div>
+  <button id="btn">Start casting</button>
+  <div id="status"></div>
+  <div id="enc" style="margin-top:10px;font-size:12px;color:#6c6c78;text-align:center;line-height:1.5"></div>
+  <div id="tvaddr" style="margin-top:6px;font-size:11px;color:#55555f;text-align:center"></div>
+  <div id="diag" style="margin-top:10px;font-size:12px;color:#6c6c78;text-align:center;line-height:1.5"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const btn = $('btn'), statusEl = $('status'), codeEl = $('code');
+let ws, pc, stream, casting = false, keep = null;
+
+const setStatus = (t) => statusEl.textContent = t;
+// degr: what the encoder gives up when the network is tight. 'maintain-resolution' keeps the picture at full
+// size and drops frames instead, so it doesn't shrink and then slowly climb back up.
+const QUALITY = {
+  smooth:   { w: 1280, h: 720,  fps: 30, bps: 3_000_000,  degr: 'maintain-resolution' },
+  balanced: { w: 1920, h: 1080, fps: 30, bps: 6_000_000,  degr: 'maintain-resolution' },
+  sharp:    { w: 1920, h: 1080, fps: 30, bps: 10_000_000, degr: 'maintain-resolution' },
+  motion:   { w: 1920, h: 1080, fps: 60, bps: 12_000_000, degr: 'maintain-framerate' },
+};
+const Q = () => QUALITY[$('quality').value];
+try { const q = localStorage.getItem('castQuality'); if (QUALITY[q]) $('quality').value = q; } catch {}
+$('quality').addEventListener('change', () => { try { localStorage.setItem('castQuality', $('quality').value); } catch {} });
+try { if (localStorage.getItem('castSmooth') === '0') $('smooth').checked = false; } catch {}
+$('smooth').addEventListener('change', () => { try { localStorage.setItem('castSmooth', $('smooth').checked ? '1' : '0'); } catch {} });
+
+// ==KEEPALIVE-START==
+// A screen capture only produces a frame when something on screen changes. On a still screen the stream sinks to
+// ~1 fps, and the encoder, the Wi-Fi link (its radio sleeps between packets) and the TV's decoder/jitter buffer all
+// go to sleep with it. When something moves again they have to spin back up, which takes seconds.
+// Fix: re-send the newest frame at a steady rate (a still frame costs only a few kbps), so nothing ever idles.
+// - Frames go through a canvas: re-sent VideoFrames keep their "no change here" metadata and WebRTC throws them away.
+//   An unchanged canvas is also skipped, so a 2x2 patch is re-drawn from the source (changes no pixel, counts as a draw).
+// - A Worker is the clock: page timers are throttled when the window is in the background, workers are not.
+// - Canvas frames also keep the encoder on the GPU (Media Foundation) instead of the CPU software encoder.
+// Returns { track, stop } or null if this browser can't do it (then the raw capture track is sent as before).
+function startKeepAlive(track, fps) {
+  if (typeof MediaStreamTrackProcessor === 'undefined' || typeof Worker === 'undefined' || !HTMLCanvasElement.prototype.captureStream) return null;
+  try {
+    const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const out = canvas.captureStream(0).getVideoTracks()[0];
+    try { out.contentHint = 'motion'; } catch {}
+    let last = null, dirty = false, lastEmit = 0, alive = true;
+    (async () => {
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (!alive) { value.close(); break; }
+          if (last) last.close();
+          last = value; dirty = true;
+        }
+      } catch {}
+    })();
+    const period = 1000 / fps;
+    const metro = new Worker(URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${Math.max(4, Math.round(period / 2))})`], { type: 'text/javascript' })));
+    metro.onmessage = () => {
+      if (!alive || !last) return;
+      const now = performance.now();
+      if (now - lastEmit < period - 3) return;
+      const w = last.displayWidth, h = last.displayHeight;
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; dirty = true; }
+      if (dirty) ctx.drawImage(last, 0, 0);
+      else ctx.drawImage(last, 0, 0, 2, 2, 0, 0, 2, 2);
+      out.requestFrame();
+      dirty = false; lastEmit = now;
+    };
+    return {
+      track: out,
+      stop() {
+        alive = false; metro.terminate();
+        reader.cancel().catch(() => {});
+        if (last) { last.close(); last = null; }
+        out.stop();
+      },
+    };
+  } catch (e) { console.warn('Always-smooth mode unavailable, sending the raw capture', e); return null; }
+}
+// ==KEEPALIVE-END==
+let tvName = 'Fire TV';
+// ---- Sound panel: both outputs are on by default ----
+let tvMuted = false, pcMuted = false;
+
+function sendOutput() {
+  if (ws && ws.readyState === 1)
+    ws.send(JSON.stringify({ type: 'audio-output', muted: tvMuted, volume: $('tvVol').value / 100 }));
+}
+function drawTv() {
+  $('tvMute').textContent = tvMuted ? '🔇' : '🔊'; $('tvMute').classList.toggle('off', tvMuted);
+  $('tvPct').textContent = $('tvVol').value + '%';
+}
+// Only one output at a time once you pick one: turning sound on for one mutes the other.
+const muteTv = () => { tvMuted = true; drawTv(); sendOutput(); };
+const mutePc = () => pcCall({ muted: true }).then(drawPc).catch(pcFail);
+
+$('tvMute').onclick = () => { tvMuted = !tvMuted; drawTv(); sendOutput(); if (!tvMuted) mutePc(); };
+$('tvVol').oninput = () => {
+  const turnedOn = tvMuted && +$('tvVol').value > 0;
+  if (turnedOn) tvMuted = false;
+  drawTv(); sendOutput();
+  if (turnedOn) mutePc();
+};
+
+// Laptop = Windows master volume, changed through the local server.
+async function pcCall(body) {
+  const r = await fetch('/api/pc-audio', body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+  return r.json();
+}
+function drawPc(s) {
+  pcMuted = s.muted;
+  $('pcMute').textContent = pcMuted ? '🔇' : '🔊'; $('pcMute').classList.toggle('off', pcMuted);
+  $('pcVol').value = s.volume; $('pcPct').textContent = s.volume + '%';
+}
+const pcFail = () => { $('pcNote').textContent = 'Laptop volume works only on the PC running the server (http://localhost).'; };
+$('pcMute').onclick = () => {
+  const turningOn = pcMuted;
+  pcCall({ muted: !pcMuted }).then(drawPc).catch(pcFail);
+  if (turningOn) muteTv();
+};
+let pcTimer;
+$('pcVol').oninput = () => {
+  $('pcPct').textContent = $('pcVol').value + '%';
+  if (pcMuted) muteTv();                       // laptop sound is being turned on
+  clearTimeout(pcTimer);
+  pcTimer = setTimeout(() => pcCall({ volume: +$('pcVol').value, muted: false }).then(drawPc).catch(pcFail), 250);
+};
+pcCall().then(drawPc).catch(pcFail);
+drawTv();
+
+btn.onclick = () => casting ? stop() : start();
+codeEl.addEventListener('keydown', (e) => e.key === 'Enter' && start());
+
+async function start() {
+  const code = codeEl.value.trim();
+  if (code.length !== 6) return setStatus('Enter the 6-digit code from the TV.');
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: Q().fps, max: Q().fps }, width: { ideal: Q().w, max: Q().w }, height: { ideal: Q().h, max: Q().h } },
+      // Music/movie audio, not a microphone: turn off voice processing (echo cancel, noise suppression, auto-gain).
+      audio: $('audio').checked ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } : false,
+    });
+  } catch (e) {
+    return setStatus(location.hostname === 'localhost' || location.protocol === 'https:'
+      ? 'Screen share cancelled.' : 'Open this page via http://localhost:PORT on the PC (browsers block screen capture on plain-HTTP network addresses).');
+  }
+  stream.getVideoTracks()[0].onended = stop;       // user clicked "Stop sharing" in the browser
+  // NOTE: on the raw capture track, hint 'motion' makes Chromium use the CPU software H.264 encoder (OpenH264), which wakes
+  // faster after a still screen than the GPU encoder does. With "Always smooth" the canvas track below is sent instead.
+  try { stream.getVideoTracks()[0].contentHint = 'motion'; } catch {}   // favour smoothness over sharpness
+  // 30 fps presets only: at 60 fps the GPU encoder runs ~2x the bitrate of the CPU one and a decoder (test PC) could not keep up.
+  keep = $('smooth').checked && Q().fps <= 30 ? startKeepAlive(stream.getVideoTracks()[0], Q().fps) : null;
+  setStatus('Connecting…');
+
+  ws = new WebSocket(`ws://${location.host}`);
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'join', code }));
+  ws.onclose = () => casting && stop();
+  ws.onmessage = async (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'error') { setStatus(m.message); cleanup(); }
+    else if (m.type === 'joined') { tvName = m.name || 'Fire TV'; await beginPeer(); }
+    else if (m.type === 'answer') await pc.setRemoteDescription({ type: m.answer.type, sdp: boostBitrate(m.answer.sdp) });
+    else if (m.type === 'candidate' && pc) { try { await pc.addIceCandidate(m.candidate); } catch {} }
+    else if (m.type === 'audio-state') {
+      const mine = stream ? stream.getAudioTracks().length : 0;
+      $('diag').innerHTML = `PC captured audio tracks: <b>${mine}</b><br>` +
+        `TV: tracks <b>${m.audioTracks}</b> (live: ${m.trackLive}), volume <b>${m.volume}%</b>, ` +
+        `${m.unlocked ? 'unlocked' : '<b>locked – press a remote button</b>'}, ${m.muted ? 'muted' : 'unmuted'}`;
+    }
+    else if (m.type === 'bye') { setStatus('TV disconnected.'); cleanup(); }
+  };
+}
+
+// Opus defaults to ~32 kbps and effectively mono. Ask for stereo at high bitrate (music quality).
+function stereoOpus(sdp) {
+  const m = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
+  if (!m) return sdp;
+  return sdp.replace(new RegExp('(a=fmtp:' + m[1] + ' )([^\\r\\n]*)'), (_, head, params) =>
+    head + params.replace(/;?(stereo|sprop-stereo|maxaveragebitrate|cbr)=\d+/g, '') + ';stereo=1;sprop-stereo=1;maxaveragebitrate=192000;cbr=0');
+}
+
+// Make the encoder start at (and stay near) the target bitrate instead of probing up from a low guess.
+// Without this, after a quiet period the picture is small/soft and takes seconds to climb back to full size.
+function boostBitrate(sdp) {
+  const kbps = Math.round(Q().bps / 1000);
+  const ids = [...sdp.matchAll(/a=rtpmap:(\d+) H264\/90000/g)].map((x) => x[1]);
+  for (const id of ids)
+    sdp = sdp.replace(new RegExp('(a=fmtp:' + id + ' [^\\r\\n]*)'), `$1;x-google-start-bitrate=${kbps};x-google-min-bitrate=${Math.round(kbps * 0.4)};x-google-max-bitrate=${kbps}`);
+  return sdp;
+}
+
+async function beginPeer() {
+  pc = new RTCPeerConnection({ iceServers: [] });  // LAN only
+  stream.getTracks().forEach((t) => pc.addTrack(t.kind === 'video' && keep ? keep.track : t, stream));
+
+  // Fire TV decodes H.264 in hardware; VP8/VP9 can come out black or choppy. Prefer H.264.
+  // The list must only contain codecs the transceiver also supports for receiving, otherwise
+  // Electron (and some Chrome builds) reject it and silently fall back to VP8 on the CPU.
+  try {
+    const send = RTCRtpSender.getCapabilities('video').codecs;
+    const recv = RTCRtpReceiver.getCapabilities('video').codecs;
+    const h264 = send.filter((c) => c.mimeType === 'video/H264' &&
+      recv.some((r) => r.mimeType === c.mimeType && r.sdpFmtpLine === c.sdpFmtpLine));
+    const rest = recv.filter((c) => c.mimeType !== 'video/H264');
+    if (!h264.length) throw new Error('no usable H.264 codec');
+    pc.getTransceivers().forEach((t) => {
+      if (t.sender.track && t.sender.track.kind === 'video') t.setCodecPreferences([...h264, ...rest]);
+    });
+  } catch (e) { console.warn('H.264 preference failed – using default codec', e); }
+  pc.onicecandidate = (e) => e.candidate && ws.send(JSON.stringify({ type: 'candidate', candidate: e.candidate }));
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') { setStatus(`Casting to ${tvName}`); }
+    if (pc.connectionState === 'failed') { setStatus('Connection failed (same Wi-Fi/network?)'); cleanup(); }
+  };
+
+  // Prefer smooth motion, and raise bitrate for a crisp desktop on a LAN.
+  const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+  const params = sender.getParameters();
+  params.encodings = [{ maxBitrate: Q().bps, maxFramerate: Q().fps, scaleResolutionDownBy: 1, priority: 'high', networkPriority: 'high' }];
+  params.degradationPreference = Q().degr;
+  await sender.setParameters(params).catch(() => {});
+
+  const aSender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
+  if (aSender) {
+    const ap = aSender.getParameters();
+    ap.encodings = [{ maxBitrate: 192_000 }];
+    await aSender.setParameters(ap).catch(() => {});
+  }
+
+  const offer = await pc.createOffer();
+  offer.sdp = stereoOpus(offer.sdp);
+  await pc.setLocalDescription(offer);
+  ws.send(JSON.stringify({ type: 'offer', offer: pc.localDescription }));
+  sendOutput();
+  watchEncoder();
+  casting = true;
+  btn.textContent = 'Stop casting'; btn.className = 'stop';
+}
+
+// Live encoder info: tells you whether the GPU (hardware) or the CPU (software) is encoding.
+let statsTimer;
+function watchEncoder() {
+  clearInterval(statsTimer);
+  statsTimer = setInterval(async () => {
+    if (!pc) return;
+    const rep = await pc.getStats();
+    rep.forEach((s) => {
+      if (s.type !== 'outbound-rtp' || s.kind !== 'video') return;
+      const impl = s.encoderImplementation || '?';
+      const codec = (rep.get(s.codecId) || {}).mimeType || '';
+      const hw = s.powerEfficientEncoder === true || /MediaFoundation|VideoToolbox|NVENC|NVidia|D3D|AMF|QSV|MFT|VideoEncodeAccelerator/i.test(impl);
+      $('enc').innerHTML = `${codec.replace('video/', '')} · Encoder: <b>${impl}</b> (${hw ? 'GPU / hardware' : 'CPU / software'}) · ` +
+        `${Math.round(s.framesPerSecond || 0)} fps · ${s.frameWidth || 0}×${s.frameHeight || 0}` +
+        (s.qualityLimitationReason && s.qualityLimitationReason !== 'none' ? ` · limited by ${s.qualityLimitationReason}` : '');
+    });
+  }, 2000);
+}
+fetch('/api/info').then((r) => r.json()).then((i) => {
+  $('intro').innerHTML = `On your Fire TV open <b>Cast Receiver</b>, choose <b>${i.name}</b> in the list, then enter the 6-digit code shown on the TV.`;
+  $('tvaddr').textContent = 'Browser fallback on the TV: ' + i.addresses.map((a) => `http://${a}:${i.port}/receiver.html`).join('  ');
+}).catch(() => {});
+
+function stop() {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'bye' }));
+  cleanup(); setStatus('Stopped.');
+}
+
+function cleanup() {
+  casting = false;
+  clearInterval(statsTimer); $('enc').textContent = '';
+  if (keep) { keep.stop(); keep = null; }
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  if (pc) pc.close();
+  if (ws) { ws.onclose = null; ws.close(); }
+  stream = pc = ws = null;
+  btn.textContent = 'Start casting'; btn.className = '';
+}
+</script>
+</body>
+</html>
