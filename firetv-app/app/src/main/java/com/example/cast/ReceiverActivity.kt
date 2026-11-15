@@ -110,6 +110,7 @@ class ReceiverActivity : Activity() {
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
             .createPeerConnectionFactory()
 
+        showStats = getSharedPreferences(OnboardingActivity.PREFS, MODE_PRIVATE).getBoolean("showStats", true)
         buildUi()
         connect()
         ui.postDelayed(statsTick, 2000)
@@ -117,6 +118,7 @@ class ReceiverActivity : Activity() {
 
     private fun buildUi() {
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        root.addView(BackdropView(this), FrameLayout.LayoutParams(-1, -1))   // shown while waiting; the video covers it
 
         renderer = SurfaceViewRenderer(this).apply {
             init(egl.eglBaseContext, null)
@@ -126,30 +128,36 @@ class ReceiverActivity : Activity() {
         }
         root.addView(renderer, FrameLayout.LayoutParams(-1, -1))
 
+        // Waiting screen: a centred glass card with the pairing code.
         idle = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
-        headerView = TextView(this).apply {
-            text = "Connected to $pcLabel"
-            textSize = 34f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        val d = Glass.dp(this, 1)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+            background = Glass.panel(this@ReceiverActivity, 48)
+            setPadding(72 * d, 48 * d, 72 * d, 48 * d)
         }
-        idle.addView(headerView)
+        card.addView(Glass.chip(this, "Connected to $pcLabel").also { headerView = it }, LinearLayout.LayoutParams(-2, -2))
         hintView = TextView(this).apply {
             text = "On $pcLabel open Cast to Fire TV and enter this code"
-            textSize = 24f; setTextColor(Color.parseColor("#99AAAA")); gravity = Gravity.CENTER
-            setPadding(0, 12, 0, 12)
+            textSize = 22f; setTextColor(Glass.SUB); gravity = Gravity.CENTER
+            setPadding(0, 28 * d, 0, 8 * d)
         }
-        idle.addView(hintView)
+        card.addView(hintView, LinearLayout.LayoutParams(-2, -2))
         codeView = TextView(this).apply {
-            text = "------"; textSize = 110f; setTextColor(Color.WHITE); letterSpacing = 0.2f
-            setTypeface(typeface, android.graphics.Typeface.BOLD); gravity = Gravity.CENTER
+            text = "------"; textSize = 112f; setTextColor(Glass.TEXT); letterSpacing = 0.18f
+            typeface = Glass.light; gravity = Gravity.CENTER
         }
-        idle.addView(codeView)
-        idle.addView(TextView(this).apply {
-            text = addr; textSize = 20f; setTextColor(Color.parseColor("#667788")); gravity = Gravity.CENTER
-        })
+        card.addView(codeView, LinearLayout.LayoutParams(-2, -2))
+        card.addView(TextView(this).apply {
+            text = addr; textSize = 18f; setTextColor(Glass.FAINT); gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(-2, -2))
+        idle.addView(card, LinearLayout.LayoutParams(-2, -2))
         root.addView(idle, FrameLayout.LayoutParams(-1, -1))
 
-        statusView = TextView(this).apply { textSize = 16f; setTextColor(Color.parseColor("#667788")); gravity = Gravity.END }
+        statusView = TextView(this).apply {
+            textSize = 16f; setTextColor(Glass.SUB); gravity = Gravity.END
+            setShadowLayer(6f, 0f, 0f, Color.BLACK)     // stays readable over the video
+        }
         root.addView(statusView, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, 32, 20) })
         setContentView(root)
         setStatus("connecting…")
@@ -207,6 +215,7 @@ class ReceiverActivity : Activity() {
             "sender-joined" -> setStatus("sender connected")
             "offer" -> handleOffer(m.getJSONObject("offer"))
             "candidate" -> addRemoteCandidate(m.getJSONObject("candidate"))
+            "stats-visible" -> setStats(m.optBoolean("show", true), announce = false)
             "audio-output" -> {
                 tvMuted = m.optBoolean("muted", false)
                 tvVolume = m.optDouble("volume", 1.0).coerceIn(0.0, 1.0)
@@ -317,7 +326,19 @@ class ReceiverActivity : Activity() {
 
     // ---------------- stats overlay (OK/Select button toggles it) ----------------
 
+    // Stream info at the bottom of the screen. Select/OK toggles it; the choice is remembered.
     private var showStats = true
+    private fun toggleStats() = setStats(!showStats, announce = true)
+    /** [announce]: show a short message (when toggled from the remote). The PC tickbox sets it silently. */
+    private fun setStats(on: Boolean, announce: Boolean) {
+        showStats = on
+        getSharedPreferences(OnboardingActivity.PREFS, MODE_PRIVATE).edit().putBoolean("showStats", on).apply()
+        if (videoTrack == null) return
+        if (announce) {
+            statusView.text = if (on) "Stream info on" else "Stream info hidden · press OK to show"
+            ui.postDelayed({ if (!showStats) statusView.text = "" }, 2500)
+        } else if (!on) statusView.text = ""
+    }
     private val statsTick = object : Runnable {
         override fun run() {
             val p = pc
@@ -343,7 +364,7 @@ class ReceiverActivity : Activity() {
                     }
                     ui.post { if (videoTrack != null && showStats) statusView.text = line + audio }
                 }
-            } else if (!showStats && videoTrack != null) statusView.text = ""
+            } else if (!showStats && videoTrack != null && statusView.text.startsWith("Stream info").not()) statusView.text = ""
             ui.postDelayed(this, 2000)
         }
     }
@@ -366,7 +387,7 @@ class ReceiverActivity : Activity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            showStats = !showStats
+            toggleStats()
             return true
         }
         if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_MENU) {

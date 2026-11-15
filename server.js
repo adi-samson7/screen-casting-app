@@ -106,7 +106,7 @@ function attachSignaling(server) {
     do { c = String(Math.floor(100000 + Math.random() * 900000)); } while (rooms.has(c));
     return c;
   };
-  const RELAY = ['offer', 'answer', 'candidate', 'bye', 'audio-output', 'audio-state'];
+  const RELAY = ['offer', 'answer', 'candidate', 'bye', 'audio-output', 'audio-state', 'stats-visible'];
 
   wss.on('connection', (ws) => {
     ws.on('message', (raw) => {

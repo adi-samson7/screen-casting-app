@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "app": "electron .",
-    "pack": "electron-packager . CastApp --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --prune=true --ignore=\"^/(dist|dist-new|firetv-app|release|README.md)\""
+    "pack": "electron-packager . CastApp --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --prune=true --icon=assets/icon.ico --ignore=\"^/(dist|dist-new|firetv-app|release|README.md|assets/logo)\""
   },
   "dependencies": { "ws": "^8.18.0" },
   "devDependencies": {

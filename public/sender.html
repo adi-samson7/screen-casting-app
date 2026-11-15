@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cast to Fire TV</title>
+<link rel="icon" type="image/png" href="logo.png">
 <style>
   body { font-family: system-ui, sans-serif; background: #111; color: #eee; display: flex; justify-content: center; padding: 60px 16px; }
   .card { background: #1b1b1f; border-radius: 16px; padding: 32px; width: 380px; box-shadow: 0 8px 30px #0008; }
@@ -21,12 +22,13 @@
   .mute.off { opacity: .5; }
   .pct { text-align: right; font-size: 12px; color: #9a9aa5; }
   .note { font-size: 11px; color: #6c6c78; }
+  body.hideinfo #enc, body.hideinfo #diag { display: none; }
   label { display: flex; gap: 8px; align-items: center; margin-top: 14px; font-size: 14px; color: #bbb; }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>Cast to Fire TV</h1>
+  <h1 style="display:flex;align-items:center;gap:12px"><img src="logo.png" alt="" width="38" height="38">Cast to Fire TV</h1>
   <p id="intro">Open the Cast Receiver app on your Fire TV, choose this PC, then enter the 6-digit code shown on the TV.</p>
   <input id="code" inputmode="numeric" maxlength="6" placeholder="------" autofocus>
   <label><input type="checkbox" id="audio" checked style="width:auto;margin:0"> Share audio (in a browser, tick “Share system audio” in the picker)</label>
@@ -58,6 +60,7 @@
   </div>
   <button id="btn">Start casting</button>
   <div id="status"></div>
+  <label style="justify-content:center;font-size:12px;color:#6c6c78"><input type="checkbox" id="showInfo" checked style="width:auto;margin:0"> Show stream info</label>
   <div id="enc" style="margin-top:10px;font-size:12px;color:#6c6c78;text-align:center;line-height:1.5"></div>
   <div id="tvaddr" style="margin-top:6px;font-size:11px;color:#55555f;text-align:center"></div>
   <div id="diag" style="margin-top:10px;font-size:12px;color:#6c6c78;text-align:center;line-height:1.5"></div>
@@ -82,6 +85,11 @@ try { const q = localStorage.getItem('castQuality'); if (QUALITY[q]) $('quality'
 $('quality').addEventListener('change', () => { try { localStorage.setItem('castQuality', $('quality').value); } catch {} });
 try { if (localStorage.getItem('castSmooth') === '0') $('smooth').checked = false; } catch {}
 $('smooth').addEventListener('change', () => { try { localStorage.setItem('castSmooth', $('smooth').checked ? '1' : '0'); } catch {} });
+
+const applyInfo = () => document.body.classList.toggle("hideinfo", !$("showInfo").checked);
+try { if (localStorage.getItem("castInfo") === "0") $("showInfo").checked = false; } catch {}
+applyInfo();
+$("showInfo").addEventListener("change", () => { applyInfo(); sendInfo(); try { localStorage.setItem("castInfo", $("showInfo").checked ? "1" : "0"); } catch {} });
 
 // ==KEEPALIVE-START==
 // A screen capture only produces a frame when something on screen changes. On a still screen the stream sinks to
@@ -142,6 +150,8 @@ let tvName = 'Fire TV';
 // ---- Sound panel: both outputs are on by default ----
 let tvMuted = false, pcMuted = false;
 
+// The "Show stream info" tickbox also shows/hides the info line drawn on the TV.
+function sendInfo() { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'stats-visible', show: $('showInfo').checked })); }
 function sendOutput() {
   if (ws && ws.readyState === 1)
     ws.send(JSON.stringify({ type: 'audio-output', muted: tvMuted, volume: $('tvVol').value / 100 }));
@@ -292,7 +302,7 @@ async function beginPeer() {
   offer.sdp = stereoOpus(offer.sdp);
   await pc.setLocalDescription(offer);
   ws.send(JSON.stringify({ type: 'offer', offer: pc.localDescription }));
-  sendOutput();
+  sendOutput(); sendInfo();
   watchEncoder();
   casting = true;
   btn.textContent = 'Stop casting'; btn.className = 'stop';

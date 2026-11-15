@@ -44,7 +44,7 @@ async function createWindow() {
 
   win = new BrowserWindow({
     width: 480, height: 820, minWidth: 420, minHeight: 700,
-    title: 'Cast to Fire TV', backgroundColor: '#111111', autoHideMenuBar: true,
+    title: 'Cast to Fire TV', icon: path.join(__dirname, '..', 'assets', 'icon.ico'), backgroundColor: '#111111', autoHideMenuBar: true,
     webPreferences: { backgroundThrottling: false, contextIsolation: true, nodeIntegration: false },
   });
   Menu.setApplicationMenu(null);
