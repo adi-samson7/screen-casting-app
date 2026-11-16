@@ -32,3 +32,6 @@ npm-debug.log*
 # Temp / test output
 tmp/
 *.tmp
+
+# Windows installer output
+installer/

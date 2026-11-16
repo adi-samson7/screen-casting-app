@@ -8,11 +8,54 @@
   "scripts": {
     "start": "node server.js",
     "app": "electron .",
-    "pack": "electron-packager . CastApp --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --prune=true --icon=assets/icon.ico --ignore=\"^/(dist|dist-new|firetv-app|release|README.md|assets/logo)\""
+    "pack": "electron-packager . CastApp --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --prune=true --icon=assets/icon.ico --ignore=\"^/(dist|dist-new|firetv-app|release|README.md|assets/logo)\"",
+    "installer": "electron-builder --win nsis"
   },
-  "dependencies": { "ws": "^8.18.0" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
   "devDependencies": {
     "@electron/packager": "^18.3.6",
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.example.cast.pc",
+    "productName": "Cast to Fire TV",
+    "executableName": "CastApp",
+    "asar": false,
+    "directories": {
+      "output": "installer"
+    },
+    "files": [
+      "electron/**",
+      "public/**",
+      "server.js",
+      "pc-audio.ps1",
+      "package.json",
+      "assets/icon.ico"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cast to Fire TV",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "artifactName": "Cast-to-Fire-TV-Setup-${version}.exe"
+    }
   }
 }

@@ -5,6 +5,7 @@ WebRTC over your local network. No cloud, no accounts.
 ## PC app (Electron)
 - Run from source: `npm install`, then `npm run app`.
 - Build a standalone app: `npm run pack` → `dist/CastApp-win32-x64/CastApp.exe` (copy the whole folder).
+- Build a Windows installer (setup wizard): `npm run installer` → `installer/Cast-to-Fire-TV-Setup-<version>.exe` (per-user install, no admin needed; adds Start Menu + Desktop shortcuts and an uninstaller).
 - It runs the server and the sender screen together, captures your entire screen + system audio with no picker,
   and shows which encoder is used (GPU/hardware or CPU/software) once you cast.
 - Allow it through the Windows firewall (private networks) the first time.
