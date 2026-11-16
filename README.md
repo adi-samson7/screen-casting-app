@@ -40,3 +40,6 @@ WebRTC over your local network. No cloud, no accounts.
 - PC and Fire TV must be on the same network.
 - DRM video (Netflix etc.) shows black. That's a platform restriction.
 - Laptop volume controls change Windows' master volume.
+
+## License
+MIT – see [LICENSE](LICENSE).

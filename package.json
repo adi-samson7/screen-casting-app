@@ -4,6 +4,7 @@
   "version": "0.2.0",
   "description": "Mirror your PC screen and audio to a Fire TV Stick over the local network",
   "private": true,
+  "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
     "start": "node server.js",
