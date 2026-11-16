@@ -24,6 +24,23 @@ You enter the TV's code on the PC and press **Start casting**. Both devices must
 > **Heads-up:** this repository contains only the source code. The finished programs (`.exe` and `.apk` files) are big,
 > so they are not stored in Git. You build them yourself with the steps below. It takes a few minutes the first time.
 
+## Architecture
+Your screen takes this path from the PC to the TV:
+
+```mermaid
+flowchart TD
+  A["🖥️ <b>Windows screen + system audio</b><br/>What you see and hear on your PC"]
+  B["<b>Screen and audio capture</b><br/>Electron and Chromium capture your desktop"]
+  C["<b>Video encoding (H.264)</b><br/>Compresses video to make transmission efficient"]
+  D["<b>WebRTC</b><br/>Handles real-time transmission over Wi-Fi"]
+  E["<b>TV hardware decoder</b><br/>Decodes the video and displays it on your TV"]
+  A --> B --> C --> D --> E
+```
+
+- A small server inside the PC app only **pairs** the two devices (the 6-digit code) and announces the PC to the TV.
+  The video and audio themselves go **directly** from the PC to the TV over your Wi-Fi, never through that server and never over the internet.
+- The same stream can be received by the Android TV app or by a web page (Browser mode).
+
 ---
 
 ## Part 1 – Get the PC app (Windows)
