@@ -1,31 +1,68 @@
-# PC → Fire TV screen mirroring
+<div align="center">
 
-Mirror your Windows PC's screen and sound to a Fire TV Stick (or any Android TV) over your home Wi-Fi.
-WebRTC over your local network. No cloud, no accounts.
+<img src="assets/logo-rounded.png" width="120" alt="Cast to Fire TV logo">
 
-## Screenshots
+# Cast to Fire TV
+
+**Mirror your Windows PC's screen and sound to a Fire TV Stick or Android TV, over your own Wi-Fi.**
+<br>No cloud. No accounts. No subscription.
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/PC-Windows-0078D6)
+![Platform](https://img.shields.io/badge/TV-Fire%20TV%20%7C%20Android%20TV-FF9900)
+![Electron](https://img.shields.io/badge/Electron-33-47848F)
+![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF)
+![WebRTC](https://img.shields.io/badge/WebRTC-H.264%20%2B%20Opus-333)
+
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/app-tab.png" width="320" alt="App tab"><br><sub><b>App</b> – enter the TV code, pick quality, control sound</sub></td>
-    <td align="center"><img src="docs/screenshots/browser-mode-tab.png" width="320" alt="Browser mode tab"><br><sub><b>Browser mode</b> – copy the receiver address for another PC or phone</sub></td>
+    <td align="center"><img src="docs/screenshots/app-tab.png" width="300" alt="App tab"><br><sub><b>App</b> – enter the TV code, pick quality, control sound</sub></td>
+    <td align="center"><img src="docs/screenshots/browser-mode-tab.png" width="300" alt="Browser mode tab"><br><sub><b>Browser mode</b> – cast to another PC or phone</sub></td>
   </tr>
 </table>
 
-## How it works (the 30-second version)
-There are two apps:
+</div>
 
-| App | Runs on | What it does |
-|---|---|---|
-| **PC app** ("Cast to Fire TV") | Your Windows PC | Captures the screen and sound and sends them |
-| **TV app** ("Cast Receiver") | Your Fire TV / Android TV | Shows a 6-digit code and plays what the PC sends |
+---
 
-You enter the TV's code on the PC and press **Start casting**. Both devices must be on the **same Wi-Fi**.
+## Contents
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Build the PC app](#build-the-pc-app)
+- [Build and install the TV app](#build-and-install-the-tv-app)
+- [Using the app](#using-the-app)
+- [Configuration](#configuration)
+- [Project structure](#project-structure)
+- [Tech stack](#tech-stack)
+- [Troubleshooting](#troubleshooting)
+- [Limitations and security](#limitations-and-security)
+- [License](#license)
 
-> **Heads-up:** this repository contains only the source code. The finished programs (`.exe` and `.apk` files) are big,
-> so they are not stored in Git. You build them yourself with the steps below. It takes a few minutes the first time.
+---
 
-## Architecture
-Your screen takes this path from the PC to the TV:
+## Features
+
+| | |
+|---|---|
+| 🖥️ **Whole-screen mirroring** | Captures your primary screen and system audio with no picker dialog |
+| 🎞️ **Hardware video** | H.264 encoded on the PC's GPU, decoded by the TV's hardware decoder |
+| 🎚️ **Quality presets** | Smooth 720p30, Balanced 1080p30, Sharp 1080p30 (10 Mbps), Fast motion 1080p60 |
+| ⚡ **Always smooth** | Keeps a steady frame rate even on a still screen, so the picture never "wakes up" slowly |
+| 🔊 **Sound control** | Separate volume and mute for the TV (and its Bluetooth speaker) and for the laptop; turning one on mutes the other |
+| 🔎 **Automatic discovery** | The TV lists every PC on the network by name. No typing IP addresses |
+| 🔢 **6-digit pairing** | You choose the PC and enter the code shown on the TV; nothing connects automatically |
+| 🌐 **Browser mode** | Cast to another PC, a phone or a tablet through a web page, with a one-click Copy button and automatic Wi-Fi address detection |
+| 📊 **Live stream info** | Codec, decoder, resolution, fps and packet loss on the PC and the TV, with a show/hide switch |
+| ✨ **Glass-style TV UI** | Onboarding on first launch, PC cards, and a pairing screen |
+| 📦 **Installer** | A Windows setup wizard with shortcuts and an uninstaller |
+
+---
+
+## How it works
+
+Two apps work together: the **PC app** captures and sends, and the **TV app** receives and plays.
 
 ```mermaid
 flowchart TD
@@ -38,48 +75,60 @@ flowchart TD
 ```
 
 - A small server inside the PC app only **pairs** the two devices (the 6-digit code) and announces the PC to the TV.
-  The video and audio themselves go **directly** from the PC to the TV over your Wi-Fi, never through that server and never over the internet.
+  The video and audio go **directly** from the PC to the TV over your Wi-Fi, never through that server and never over the internet.
 - The same stream can be received by the Android TV app or by a web page (Browser mode).
 
 ---
 
-## Part 1 – Get the PC app (Windows)
+## Requirements
 
-**Install first (one time):** [Node.js](https://nodejs.org) (the LTS version) and [Git](https://git-scm.com).
-
-Open **PowerShell** and run:
-
-```powershell
-git clone https://github.com/adi-samson7/Screen-casting-app.git
-cd Screen-casting-app
-npm install
-```
-
-Now pick one way to run it:
-
-| I want to… | Run this | Result |
+| | PC | TV |
 |---|---|---|
-| Just try it quickly | `npm run app` | Opens the app straight from the source |
-| Get a portable app | `npm run pack` | `dist\CastApp-win32-x64\CastApp.exe` (keep the **whole folder** together) |
-| Get a setup wizard (for installing on other PCs) | `npm run installer` | `installer\Cast-to-Fire-TV-Setup-<version>.exe` |
+| **System** | Windows 10 / 11 | Fire TV Stick (any model), Fire TV Cube, or Android TV / Google TV (Android 5.1+) |
+| **Network** | Same Wi-Fi / network as the TV | Same Wi-Fi / network as the PC |
+| **To build from source** | [Node.js](https://nodejs.org) (LTS) and [Git](https://git-scm.com) | [Android Studio](https://developer.android.com/studio) (includes Java, the Android SDK and `adb`) |
 
-Notes:
-- The first time you start it, **Windows Firewall** asks for permission. Choose **Private networks** and Allow, or the TV can't see your PC.
-- The installer is not code-signed, so Windows may show "Windows protected your PC". Click **More info → Run anyway**.
-- Close the app before running `npm run pack` again, or Windows says the folder is locked.
+> **Note:** this repository contains only the source code. The finished programs (`.exe` and `.apk`) are large, so they are not stored in Git. Build them with the steps below; the first build takes a few minutes.
 
 ---
 
-## Part 2 – Build the TV app (the APK)
+## Quick start
 
-An **APK** is the installer file for an Android app (like `.exe` for Windows). You build it once, then install it on the TV.
+```powershell
+# 1. Get the code and install dependencies
+git clone https://github.com/adi-samson7/Screen-casting-app.git
+cd Screen-casting-app
+npm install
 
-### 2.1 What you need (one time)
-1. Install **[Android Studio](https://developer.android.com/studio)**. It includes everything required: Java, the Android SDK and `adb`.
-2. Open Android Studio once and finish its setup wizard so it downloads the SDK.
+# 2. Start the PC app
+npm run app
+```
 
-### 2.2 Build it
-Open **PowerShell** in the project folder and run these lines one by one:
+Then [build the TV app](#build-and-install-the-tv-app), install it on the TV, and follow [Using the app](#using-the-app).
+
+---
+
+## Build the PC app
+
+| I want to… | Run | Result |
+|---|---|---|
+| Try it quickly | `npm run app` | Opens the app straight from the source |
+| A portable app | `npm run pack` | `dist\CastApp-win32-x64\CastApp.exe` (keep the **whole folder** together) |
+| A setup wizard | `npm run installer` | `installer\Cast-to-Fire-TV-Setup-<version>.exe` |
+
+- The installer is per-user (no admin rights needed) and adds Start Menu and Desktop shortcuts plus an uninstaller.
+- The installer is **not code-signed**, so Windows may show "Windows protected your PC". Click **More info → Run anyway**.
+- On first start, Windows Firewall asks for permission. Choose **Private networks** and Allow, or the TV cannot see your PC.
+- Close the app before running `npm run pack` again, or Windows reports the folder as locked.
+
+---
+
+## Build and install the TV app
+
+An **APK** is the installer file for an Android app (like `.exe` on Windows). You build it once, then install it on the TV with `adb` over Wi-Fi ("sideloading").
+
+### 1. Build the APK
+Install **Android Studio** and open it once so it downloads the Android SDK. Then, in PowerShell:
 
 ```powershell
 cd firetv-app
@@ -87,108 +136,152 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 .\gradlew.bat assembleRelease
 ```
 
-- The first build downloads tools and can take **5–10 minutes**. Later builds are much faster.
-- When it ends with `BUILD SUCCESSFUL`, your APK is here:
-  `firetv-app\app\build\outputs\apk\release\app-release.apk`
-- If it complains about a **missing SDK platform** or `sdk.dir`, open the `firetv-app` folder in Android Studio once
-  (File → Open). It creates the settings file and offers to install what's missing. Then run the build again.
+- The first build downloads tools and can take several minutes; later builds are faster.
+- When it prints `BUILD SUCCESSFUL`, the file is at `firetv-app\app\build\outputs\apk\release\app-release.apk`.
+- If it reports a missing SDK platform or `sdk.dir`, open the `firetv-app` folder in Android Studio once (File → Open). It creates the settings file and offers to install what is missing.
+- Prefer clicking? In Android Studio choose **Build → Build APK(s)**.
 
-*Prefer clicking?* Open the `firetv-app` folder in Android Studio and choose **Build → Build APK(s)**.
+### 2. Prepare the TV (one time)
+1. On the TV: **Settings → My Fire TV → Developer options**.
+2. Turn **ADB debugging** ON. Turn **Install unknown apps** ON if you see it.
+3. No *Developer options*? Go to **Settings → My Fire TV → About**, highlight the device name and press **Select 7 times**.
+4. Find the TV's address: **Settings → My Fire TV → About → Network**. Note the **IP address** (for example `192.168.29.9`). It can change after a restart.
 
-### 2.3 (Optional) Keep a tidy copy
-```powershell
-cd ..
-mkdir release
-copy firetv-app\app\build\outputs\apk\release\app-release.apk release\CastReceiver.apk
-```
-(The `release` folder is ignored by Git, so it stays on your PC only.)
-
----
-
-## Part 3 – Install the APK on the TV ("sideloading")
-
-Sideloading means installing an app that isn't from the Amazon store. You do it from the PC over Wi-Fi with a tool called **adb**.
-
-### Step 1 – Set up the TV (one time)
-1. On the TV go to **Settings → My Fire TV → Developer options**.
-2. Turn **ADB debugging** **ON**.
-3. Turn **Install unknown apps** (also called *Apps from Unknown Sources*) **ON** if you see it.
-4. Can't see *Developer options*? Go to **Settings → My Fire TV → About**, highlight the device name and press **Select 7 times**. Then go back.
-
-### Step 2 – Find the TV's address
-Go to **Settings → My Fire TV → About → Network** and write down the **IP address**, for example `192.168.29.9`.
-(It can change when the TV restarts, so check again if a later connection fails.)
-
-### Step 3 – Connect from the PC
-Make sure the PC and TV are on the **same Wi-Fi**. In **PowerShell**:
+### 3. Connect and install
+Make sure the PC and TV are on the same Wi-Fi, then:
 
 ```powershell
 cd $env:LOCALAPPDATA\Android\Sdk\platform-tools
-.\adb.exe connect 192.168.29.9:5555
+.\adb.exe connect 192.168.29.9:5555      # use YOUR TV's IP
 ```
 
-Replace `192.168.29.9` with **your TV's IP**. The TV shows **"Allow USB debugging?"**: choose **Always allow** and press **OK**.
-
-Check that it worked:
+The TV shows **"Allow USB debugging?"**. Choose **Always allow** and press OK. Check the connection:
 
 ```powershell
-.\adb.exe devices
+.\adb.exe devices                        # your TV should be listed as "device"
+.\adb.exe install -r "C:\path\to\app-release.apk"
 ```
 
-Your TV should be listed with the word `device` next to it.
+`Success` means it is installed (`-r` replaces an existing copy, so the same command also updates the app).
+Open it from **Home → Apps & Channels → Cast Receiver**.
 
-> **No Android Studio?** Download Google's free "SDK Platform-Tools" zip, unzip it, and run the same commands from that folder.
-
-### Step 4 – Install the app
-Use the path to your APK. For example, if you followed 2.3:
-
-```powershell
-.\adb.exe install -r "C:\path\to\Screen-casting-app\release\CastReceiver.apk"
-```
-
-When it prints **`Success`**, it's installed. (`-r` means "replace if already installed", so the same command also updates the app.)
-
-### Step 5 – Open it on the TV
-Press **Home**, go to **Apps & Channels**, scroll to the bottom, and open **Cast Receiver**. The first time, you'll see two short welcome screens.
-
-### Troubleshooting
-
-| What you see | What to do |
-|---|---|
-| `adb is not recognized` | You're not in the `platform-tools` folder. Run the `cd` line again and keep the `.\` before `adb.exe`. |
-| `unable to connect` / timeout | Check ADB debugging is ON, both devices are on the same Wi-Fi, and the IP is correct. |
-| `unauthorized` in `adb devices` | Look at the TV and accept the "Allow USB debugging?" popup. |
-| `INSTALL_FAILED…` | Run `.\adb.exe uninstall com.example.cast` and install again. |
-| The app tile shows an orange "amazon fire" picture | Restart the TV (Settings → My Fire TV → Restart) so the home screen refreshes. |
+> No Android Studio? Download Google's free **SDK Platform-Tools** zip, unzip it, and run the same `adb` commands from that folder.
 
 ---
 
-## Part 4 – Cast!
-1. Open **Cast Receiver** on the TV. It lists every PC running the PC app, by name. Pick yours. The TV shows a **6-digit code**.
-2. Open the PC app ("Cast to Fire TV"), enter the code, choose **Quality**, and click **Start casting**.
-   - Smooth is best for a Fire TV Stick on weak Wi-Fi.
-   - Leave **Always smooth** ticked (30 fps modes). A still screen otherwise drops the stream to about 1 fps, and the picture is slow to wake up when something moves. It keeps a steady frame rate (about 40 kbps when nothing changes) and uses a bit more CPU/GPU.
-3. **Sound:** the panel has volume and mute for the Fire TV (and its Bluetooth speaker) and for the laptop. Turning one on mutes the other.
-4. **Stream info:** the tickbox "Show stream info" shows or hides the info line on the PC and on the TV. On the remote, **OK/Select** also toggles it.
+## Using the app
+
+1. **TV:** open **Cast Receiver**. It lists every PC running the PC app, by name. Pick yours. The TV shows a **6-digit code**.
+2. **PC:** open the app, enter the code on the **App** tab, choose a **Quality**, and press **Start casting**.
+   - *Smooth* is best for a Fire TV Stick on weak Wi-Fi.
+   - Leave **Always smooth** ticked (30 fps modes). A still screen otherwise drops the stream to about 1 fps, and the picture is slow to wake up when something moves.
+3. **Sound:** use the sound panel for the TV (and its Bluetooth device) and the laptop. Turning one on mutes the other.
+4. **Stream info:** the "Show stream info" tickbox shows or hides the info line on the PC and the TV. On the remote, **OK/Select** toggles it too.
 5. **Back/Menu** on the remote returns to the start screen.
 
-You can also type a PC's address by hand on the TV ("Connect by address"), or use "Browser mode" there.
+You can also type a PC's address on the TV (**Connect by address**).
 
 ### Cast to another PC, phone or tablet (Browser mode)
-In the PC app, open the **Browser mode** tab. Copy the **recommended** address (detected from your Wi-Fi) and open it in a browser on the
-other device. It shows a 6-digit code. Enter that code on the PC's **App** tab and press **Start casting**. Chrome or Edge work best.
+Open the **Browser mode** tab, copy the **recommended** address (detected from your Wi-Fi), and open it in a browser on the other device. It shows a 6-digit code: enter it on the PC's **App** tab and press **Start casting**. Chrome or Edge work best.
 
 ### Browser only (no apps at all)
-`npm start`, open http://localhost:3000/ in Chrome, and open the printed receiver URL in the Fire TV's Silk browser.
+Run `npm start`, open `http://localhost:3000/` in Chrome, and open the printed receiver URL in the TV's Silk browser.
 
 ---
 
-## Notes
-- The PC and the TV must be on the same network. Guest Wi-Fi or routers with "client isolation" can block discovery. "Connect by address" still works if they can reach each other.
-- DRM video (Netflix etc.) shows black. That's a platform restriction.
+## Configuration
+
+| Setting | How | Default |
+|---|---|---|
+| PC name shown on the TV | Environment variable `CAST_NAME` | Windows computer name |
+| Server port (`npm start` only) | Environment variable `PORT` | `3000` (the app tries up to 9 ports above it if busy) |
+| Discovery | UDP broadcast on port `41234` | Fixed |
+
+The PC page remembers Quality, Always smooth and Show stream info. The TV app remembers whether onboarding is done, the last typed address, and Show stream info.
+
+---
+
+## Project structure
+
+```
+├─ electron/main.js        PC shell: window, GPU flags, screen + audio capture
+├─ server.js               Web server, signaling (WebSocket), discovery beacon, address detection
+├─ public/
+│  ├─ sender.html          PC interface: capture, WebRTC sender, controls
+│  └─ receiver.html        Browser receiver (Browser mode)
+├─ pc-audio.ps1            Reads / sets Windows volume and mute
+├─ firetv-app/             Android TV app (Kotlin)
+│  └─ app/src/main/java/com/example/cast/
+│     ├─ MainActivity.kt        Finds PCs, lists them
+│     ├─ ReceiverActivity.kt    WebRTC receiver + hardware decoder
+│     ├─ OnboardingActivity.kt  First-launch screens
+│     ├─ Glass.kt               Shared glass-style UI
+│     └─ WebActivity.kt         Browser-mode fallback
+├─ assets/                 Logo and Windows icon
+└─ docs/screenshots/       Images used in this README
+```
+
+---
+
+## Tech stack
+
+| Area | Technology |
+|---|---|
+| PC shell | Electron 33 |
+| Server | Node.js, `ws` (WebSocket) |
+| Media | WebRTC: H.264 video, Opus audio (stereo) |
+| TV app | Kotlin, `stream-webrtc-android`, OkHttp, MediaCodec |
+| Windows volume | PowerShell with COM (`IAudioEndpointVolume`) |
+| Packaging | `@electron/packager`, `electron-builder` (NSIS), Gradle |
+
+---
+
+## Troubleshooting
+
+<details>
+<summary><b>The TV cannot see my PC</b></summary>
+
+- Both devices must be on the same Wi-Fi. Guest networks and routers with "client isolation" can block discovery.
+- Allow the app through Windows Firewall on **Private networks**.
+- Use **Connect by address** on the TV with the address from the PC's Browser mode tab.
+</details>
+
+<details>
+<summary><b><code>adb</code> problems</b></summary>
+
+| You see | Do this |
+|---|---|
+| `adb is not recognized` | Run the `cd` line first and keep the `.\` before `adb.exe` |
+| `unable to connect` / timeout | Check ADB debugging is ON, both on the same Wi-Fi, and the TV's IP is current |
+| `unauthorized` | Accept the "Allow USB debugging?" popup on the TV |
+| `INSTALL_FAILED…` | `.\adb.exe uninstall com.example.cast`, then install again |
+</details>
+
+<details>
+<summary><b>The app tile on the TV shows an orange "amazon fire" picture</b></summary>
+
+Restart the TV (**Settings → My Fire TV → Restart**) so the home screen refreshes, or reinstall the app.
+</details>
+
+<details>
+<summary><b>The picture is choppy or low frame rate</b></summary>
+
+Choose **Smooth** quality, move closer to the router (5 GHz works best), and check the stream-info line for lost or dropped frames.
+</details>
+
+---
+
+## Limitations and security
+
+- Designed for a **trusted home network**. The 6-digit code is a simple pairing code, not strong authentication, and signaling is not encrypted. Do not use it on public or shared Wi-Fi.
+- One PC to one TV at a time. Primary screen only. Windows only on the PC side (the laptop volume control and system-audio capture use Windows features).
+- Works on the local network only (no internet relay).
+- DRM-protected video (Netflix and similar) shows black; that is a platform restriction.
 - The laptop volume control changes Windows' master volume.
-- The TV app works on other Android TVs too (Android 5.1+).
-- Only your screen and sound travel over your local network. Nothing is sent to the internet.
+- The installer and APK are not code-signed (the APK uses a debug key, which is fine for sideloading).
+
+---
 
 ## License
-MIT – see [LICENSE](LICENSE).
+
+Released under the [MIT License](LICENSE). © 2026 Aditya Samson
