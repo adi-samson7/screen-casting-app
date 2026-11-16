@@ -52,6 +52,38 @@ function lanAddresses() {
   return out;
 }
 
+// ---- which address is "the Wi-Fi"? ----
+// Virtual adapters (VMware, VirtualBox, Hyper-V/WSL, Docker, VPNs) get addresses too, but no other device can reach them.
+const VIRTUAL_NAME = /vmware|virtualbox|vbox|vethernet|hyper-v|wsl|docker|loopback|bluetooth|tailscale|zerotier|hamachi|vpn|npcap|tap-|tun\d/i;
+const VIRTUAL_MAC = /^(00:50:56|00:0c:29|00:05:69|08:00:27|0a:00:27|00:15:5d)/i;
+
+// The address this PC uses to reach its router/internet. A UDP "connect" only asks the OS which route it would use: nothing is sent.
+function primaryAddress() {
+  return new Promise((resolve) => {
+    const s = dgram.createSocket('udp4');
+    const done = (v) => { try { s.close(); } catch {} resolve(v); };
+    s.on('error', () => done(null));
+    try { s.connect(53, '8.8.8.8', () => { let a = null; try { a = s.address().address; } catch {} done(a); }); } catch { done(null); }
+    setTimeout(() => done(null), 1500);
+  });
+}
+
+// Every address with a label, the recommended one first, virtual adapters last.
+async function describeAddresses() {
+  const primary = await primaryAddress();
+  const out = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces()))
+    for (const i of list) {
+      if (i.family !== 'IPv4' || i.internal) continue;
+      const virtual = VIRTUAL_NAME.test(name) || VIRTUAL_MAC.test(i.mac || '');
+      const kind = virtual ? 'Virtual adapter' : /wi-?fi|wlan|wireless/i.test(name) ? 'Wi-Fi' : /ethernet|^eth|^en\d|lan/i.test(name) ? 'Ethernet' : 'Network';
+      out.push({ address: i.address, name, kind, virtual, recommended: false });
+    }
+  out.sort((a, b) => (a.address === primary ? -1 : b.address === primary ? 1 : 0) || (a.virtual - b.virtual));
+  if (out.length && !out[0].virtual) out[0].recommended = true;      // the route's address, or else the first real adapter
+  return out;
+}
+
 function broadcastAddr(ip, mask) {
   const a = ip.split('.').map(Number), m = mask.split('.').map(Number);
   return a.map((x, k) => (x & m[k]) | (~m[k] & 255)).join('.');
@@ -82,8 +114,11 @@ function createHttp() {
     const url = req.url.split('?')[0];
     if (url === '/api/pc-audio') return handlePcAudio(req, res);
     if (url === '/api/info') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ name: deviceName(), port: res.socket.localPort, addresses: lanAddresses().map((i) => i.address) }));
+      const port = res.socket.localPort;
+      return describeAddresses().then((details) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ name: deviceName(), port, addresses: details.map((d) => d.address), details }));
+      });
     }
     let p = url === '/' ? '/sender.html' : url;
     const file = path.join(PUBLIC, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
