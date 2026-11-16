@@ -2,6 +2,14 @@
 
 WebRTC over your local network. No cloud, no accounts.
 
+## Screenshots
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/app-tab.png" width="320" alt="App tab"><br><sub><b>App</b> – enter the TV code, pick quality, control sound</sub></td>
+    <td align="center"><img src="docs/screenshots/browser-mode-tab.png" width="320" alt="Browser mode tab"><br><sub><b>Browser mode</b> – copy the receiver address for another PC or phone</sub></td>
+  </tr>
+</table>
+
 ## PC app (Electron)
 - Run from source: `npm install`, then `npm run app`.
 - Build a standalone app: `npm run pack` → `dist/CastApp-win32-x64/CastApp.exe` (copy the whole folder).
