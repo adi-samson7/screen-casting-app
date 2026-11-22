@@ -124,7 +124,8 @@ setInterval(reportAudio, 2000);
 
 function showAudioBadge() {
   if (!video.srcObject) return;
-  statusEl.textContent = tvMuted ? 'Fire TV muted' : unlocked ? `Fire TV volume ${Math.round(tvVolume * 100)}%` : 'Press any remote button for sound';
+  const who = embedded ? 'PC' : 'Fire TV';
+  statusEl.textContent = tvMuted ? `${who} muted` : unlocked ? `${who} volume ${Math.round(tvVolume * 100)}%` : (embedded ? 'Click for sound' : 'Press any remote button for sound');
   clearTimeout(showAudioBadge.t);
   showAudioBadge.t = setTimeout(() => { statusEl.textContent = ''; }, 4000);
 }

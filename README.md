@@ -190,11 +190,15 @@ The file is `android\phone\build\outputs\apk\release\phone-release.apk`.
 2. On the phone, open **Cast Sender**. It lists the PCs on your Wi-Fi: pick yours.
 3. Enter the code, choose a quality, leave **Share phone sound** on if you want the PC to play the phone's sound, and press **Start casting**. Android asks for permission to share your screen (choose **Share entire screen**) and, for sound, to "record audio".
 4. The phone's screen appears in the PC's Receive tab. Double-click it (or press **Full screen**) to enlarge it. Rotating the phone resizes the picture.
-5. With sound on, **Play test sound** on the casting screen plays a short chime so you can check the PC hears it.
-6. Stop from the app, from the notification, or from the PC.
+5. With sound on, **Sound plays on: Phone | PC | Both** chooses where you hear it, and you can change it at any time while casting:
+   - **PC**: the PC plays the sound and the phone is silenced (the phone's media volume is set to 0 and put back afterwards, even if the app is closed in between).
+   - **Phone**: the phone plays the sound and the PC is muted.
+   - **Both**: both play (the default).
+6. **Play test sound** on the casting screen plays a short chime so you can check the PC hears it.
+7. Stop from the app, from the notification, or from the PC.
 
 Good to know:
-- **Sound** is the phone's playback sound (music, videos, games), sent as **mono**. Android lets each app decide whether its sound may be captured: streaming apps and some games block it, so they arrive silent. The microphone permission is needed by Android for this, but the microphone itself is not used. The phone keeps playing sound on its own speaker too.
+- **Sound** is the phone's playback sound (music, videos, games), sent as **mono**. Android lets each app decide whether its sound may be captured: streaming apps and some games block it, so they arrive silent. The microphone permission is needed by Android for this, but the microphone itself is not used. Choose where it plays with **Sound plays on** (see above).
 - A still screen sends very few frames, so the picture can look frozen until something moves. A steadier frame rate is planned.
 
 ---

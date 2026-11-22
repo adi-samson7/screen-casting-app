@@ -53,6 +53,9 @@ class MainActivity : Activity() {
     private var castTitle: TextView? = null
     private var castLive: TextView? = null
     private var testSoundBtn: View? = null
+    private var castOutput: OutputRow? = null
+    private var pairOutputView: View? = null
+    private var outputMode = "both"          // where the sound plays: "phone", "pc" or "both"
     private var shown: List<String> = emptyList()
 
     // the PC being paired with
@@ -74,6 +77,7 @@ class MainActivity : Activity() {
         window.navigationBarColor = BG
         quality = Quality.of(prefs.getString("quality", null))
         shareSound = prefs.getBoolean("sound", true)
+        outputMode = prefs.getString("output", "both") ?: "both"
 
         val root = FrameLayout(this)
         root.addView(BackdropView(this), FrameLayout.LayoutParams(-1, -1))
@@ -89,6 +93,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         discovery.start()
+        if (CastState.phase == CastState.Phase.IDLE) PhoneVolume.restore(this)
         CastState.listener = { onCastStateChanged() }
         onCastStateChanged()
     }
@@ -112,6 +117,27 @@ class MainActivity : Activity() {
         if (active && screen != Screen.CASTING) showCasting()
         else if (!active && screen == Screen.CASTING) showHome()
         else if (screen == Screen.CASTING) refreshCasting()
+    }
+
+    /** "Sound plays on: Phone | PC | Both". [select] changes the highlighted choice without calling [onPick]. */
+    private class OutputRow(val view: LinearLayout, val select: (String) -> Unit)
+
+    private fun soundOutputRow(initial: String, onPick: (String) -> Unit): OutputRow {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(TextView(this).apply { text = "Sound plays on"; textSize = 14f; setTextColor(Glass.SUB); setPadding(0, 0, 0, dp(8)) })
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        box.addView(row)
+        var current = initial
+        fun draw() {
+            row.removeAllViews()
+            for ((key, label) in listOf("phone" to "Phone", "pc" to "PC", "both" to "Both"))
+                row.addView(Glass.pill(this, label, key == current).apply {
+                    textSize = 14f; setPadding(dp(8), dp(10), dp(8), dp(10))
+                    setOnClickListener { if (current != key) { current = key; draw(); onPick(key) } }
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = dp(8) })
+        }
+        draw()
+        return OutputRow(box) { k -> if (k != current) { current = k; draw() } }
     }
 
     // ---------------- HOME ----------------
@@ -260,13 +286,24 @@ class MainActivity : Activity() {
                 prefs.edit().putBoolean("sound", shareSound).apply()
                 text = if (shareSound) "On" else "Off"
                 background = Glass.focusable(this@MainActivity, 40, if (shareSound) Color.parseColor("#2DD4BF") else null)
+                pairOutputView?.visibility = if (shareSound) View.VISIBLE else View.GONE
             }
         })
         col.addView(soundRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) })
         if (canSound) col.addView(TextView(this).apply {
-            text = "Some apps (streaming apps, some games) block sound capture. The phone keeps playing sound too."
+            text = "Some apps (streaming apps, some games) block sound capture."
             textSize = 12f; setTextColor(Glass.FAINT); setPadding(0, dp(8), 0, 0)
         })
+        if (canSound) {
+            val out = soundOutputRow(outputMode) { m -> outputMode = m; prefs.edit().putString("output", m).apply() }
+            out.view.visibility = if (shareSound) View.VISIBLE else View.GONE
+            pairOutputView = out.view
+            col.addView(out.view, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) })
+            col.addView(TextView(this).apply {
+                text = "Choosing PC silences the phone while casting; its volume is restored afterwards. You can change this at any time while casting."
+                textSize = 12f; setTextColor(Glass.FAINT); setPadding(0, dp(8), 0, 0)
+            })
+        }
 
         col.addView(Glass.pill(this, "Start casting", true).apply {
             textSize = 18f; setPadding(dp(20), dp(16), dp(20), dp(16)); setOnClickListener { startPressed() }
@@ -324,6 +361,7 @@ class MainActivity : Activity() {
             .putExtra(CastService.EXTRA_ADDR, targetAddr).putExtra(CastService.EXTRA_NAME, targetName)
             .putExtra(CastService.EXTRA_CODE, code).putExtra(CastService.EXTRA_QUALITY, quality.key)
             .putExtra(CastService.EXTRA_AUDIO, shareSound)
+            .putExtra(CastService.EXTRA_OUTPUT, outputMode)
             .putExtra(CastService.EXTRA_DATA, data)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
         showCasting()
@@ -344,6 +382,14 @@ class MainActivity : Activity() {
         card.addView(castTitle)
         castLive = TextView(this).apply { textSize = 13f; setTextColor(Glass.SUB); gravity = Gravity.CENTER }
         card.addView(castLive)
+        // where the sound plays (only while sound is really being sent); changes take effect at once
+        castOutput = soundOutputRow(CastState.output) { m ->
+            outputMode = m; prefs.edit().putString("output", m).apply()
+            startService(Intent(this, CastService::class.java).setAction(CastService.ACTION_OUTPUT).putExtra(CastService.EXTRA_OUTPUT, m))
+        }.also {
+            it.view.visibility = View.GONE
+            card.addView(it.view, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(22) })
+        }
         card.addView(Glass.pill(this, "Stop casting", false).apply {
             textSize = 17f; setPadding(dp(30), dp(14), dp(30), dp(14))
             background = Glass.focusable(this@MainActivity, 40, Color.parseColor("#E5484D"))
@@ -368,5 +414,6 @@ class MainActivity : Activity() {
         castTitle?.text = if (live) "Casting to ${CastState.target}" else "Connecting to ${CastState.target.ifEmpty { targetName }}…"
         castLive?.text = if (live) CastState.detail.ifEmpty { "Live" } else "Waiting for the PC"
         testSoundBtn?.visibility = if (CastState.audioOn) View.VISIBLE else View.GONE
+        castOutput?.let { it.view.visibility = if (CastState.audioOn) View.VISIBLE else View.GONE; it.select(CastState.output) }
     }
 }

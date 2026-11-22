@@ -66,6 +66,8 @@ class CastService : Service() {
         const val EXTRA_NAME = "name"          // the PC's name
         const val EXTRA_CODE = "code"          // 6-digit code shown on the PC
         const val EXTRA_QUALITY = "quality"
+        const val ACTION_OUTPUT = "com.example.castsender.OUTPUT"   // change where the sound plays while casting
+        const val EXTRA_OUTPUT = "output"      // "phone" | "pc" | "both"
         const val EXTRA_AUDIO = "audio"        // true: also send the phone's sound (Android 10+, needs the microphone permission)
         const val EXTRA_DATA = "projection"    // result Intent of the screen-capture permission dialog
         private const val CHANNEL = "cast"
@@ -82,6 +84,7 @@ class CastService : Service() {
     private lateinit var quality: Quality
     private var projectionData: Intent? = null
     private var audioWanted = false            // sound requested AND allowed
+    private var output = "both"              // where the sound plays: the phone, the PC, or both
     private var audioStatus = ""               // shown on the casting screen: "sound on" / "no sound (…)"
     private var playback: PlaybackAudio? = null
     private var adm: JavaAudioDeviceModule? = null
@@ -115,6 +118,11 @@ class CastService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> { stopCasting("Stopped"); return START_NOT_STICKY }
+            ACTION_OUTPUT -> {                                       // live switch from the casting screen
+                if (CastState.phase != CastState.Phase.IDLE && !stopped) applyOutput(intent.getStringExtra(EXTRA_OUTPUT) ?: "both")
+                else stopSelf()
+                return START_NOT_STICKY
+            }
             ACTION_START -> {}
             else -> { stopSelf(); return START_NOT_STICKY }
         }
@@ -124,6 +132,7 @@ class CastService : Service() {
         pcName = intent.getStringExtra(EXTRA_NAME) ?: addr
         code = intent.getStringExtra(EXTRA_CODE) ?: ""
         quality = Quality.of(intent.getStringExtra(EXTRA_QUALITY))
+        output = intent.getStringExtra(EXTRA_OUTPUT).let { if (it == "pc" || it == "phone") it else "both" }
         val askedForSound = intent.getBooleanExtra(EXTRA_AUDIO, false)
         audioWanted = askedForSound && Build.VERSION.SDK_INT >= 29 &&
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -143,6 +152,27 @@ class CastService : Service() {
             .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "cast-sender").apply { acquire() } } catch (_: Exception) {}
         pinToWifi { connect() }                    // connect only once the Wi-Fi is pinned (or after a short wait)
         return START_NOT_STICKY
+    }
+
+    // ---------------- where the sound plays ----------------
+
+    /**
+     * "pc": the phone's own speaker is silenced (media volume 0) and the PC plays the sound.
+     * "phone": the PC is told to mute, the phone plays as normal.  "both": everything plays.
+     * Only does anything when the phone's sound is actually being sent.
+     */
+    private fun applyOutput(mode: String) {
+        val m = if (mode == "pc" || mode == "phone") mode else "both"
+        output = m
+        CastState.update { this.output = m }
+        if (!audioWanted) return
+        if (m == "pc") PhoneVolume.mute(this) else PhoneVolume.restore(this)
+        sendOutputToPc()
+    }
+
+    /** The PC's receiver page already understands audio-output (the same message the PC app sends to a Fire TV). */
+    private fun sendOutputToPc() {
+        if (audioWanted) send(JSONObject().put("type", "audio-output").put("muted", output == "phone").put("volume", 1.0))
     }
 
     // ---------------- network ----------------
@@ -306,6 +336,7 @@ class CastService : Service() {
             CastState.update { audioOn = audioTrack != null }
             watchRotation()
             createPeer(f)
+            applyOutput(output)
         } catch (e: Exception) {
             Log.e(TAG, "startMedia failed", e)
             stopCasting("Could not start screen capture")
@@ -438,7 +469,7 @@ class CastService : Service() {
         override fun onConnectionChange(s: PeerConnection.PeerConnectionState) {
             ui.post {
                 when (s) {
-                    PeerConnection.PeerConnectionState.CONNECTED -> CastState.update { phase = CastState.Phase.CASTING }
+                    PeerConnection.PeerConnectionState.CONNECTED -> { CastState.update { phase = CastState.Phase.CASTING }; sendOutputToPc() }
                     PeerConnection.PeerConnectionState.FAILED -> stopCasting("The connection to the PC failed")
                     else -> {}
                 }
@@ -503,6 +534,7 @@ class CastService : Service() {
         try { wifiLock?.release() } catch (_: Exception) {}
         wifiLock = null
         unpinWifi()
+        PhoneVolume.restore(this)
         pendingIce.clear(); remoteSet = false; lastBytes = 0; lastStatsAt = 0
 
         // take the resources away from this object, then release them elsewhere
