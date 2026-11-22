@@ -16,7 +16,7 @@
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/app-tab.png" width="300" alt="App tab"><br><sub><b>App</b> – enter the TV code, pick quality, control sound</sub></td>
+    <td align="center"><img src="docs/screenshots/app-tab.png" width="300" alt="TV App tab"><br><sub><b>TV App</b> – enter the TV code, pick quality, control sound</sub></td>
     <td align="center"><img src="docs/screenshots/browser-mode-tab.png" width="300" alt="Browser mode tab"><br><sub><b>Browser mode</b> – cast to another PC or phone</sub></td>
   </tr>
 </table>
@@ -202,7 +202,7 @@ Good to know:
 ## Using the app
 
 1. **TV:** open **Cast Receiver**. It lists every PC running the PC app, by name. Pick yours. The TV shows a **6-digit code**.
-2. **PC:** open the app, enter the code on the **App** tab, choose a **Quality**, and press **Start casting**.
+2. **PC:** open the app, enter the code on the **TV App** tab, choose a **Quality**, and press **Start casting**.
    - *Smooth* is best for a Fire TV Stick on weak Wi-Fi.
    - Leave **Always smooth** ticked (30 fps modes). A still screen otherwise drops the stream to about 1 fps, and the picture is slow to wake up when something moves.
 3. **Sound:** use the sound panel for the TV (and its Bluetooth device) and the laptop. Turning one on mutes the other.
@@ -212,7 +212,7 @@ Good to know:
 You can also type a PC's address on the TV (**Connect by address**).
 
 ### Cast to another PC, phone or tablet (Browser mode)
-Open the **Browser mode** tab, copy the **recommended** address (detected from your Wi-Fi), and open it in a browser on the other device. It shows a 6-digit code: enter it on the PC's **App** tab and press **Start casting**. Chrome or Edge work best.
+Open the **Browser mode** tab, copy the **recommended** address (detected from your Wi-Fi), and open it in a browser on the other device. It shows a 6-digit code: enter it on the PC's **TV App** tab and press **Start casting**. Chrome or Edge work best.
 
 ### Browser only (no apps at all)
 Run `npm start`, open `http://localhost:3000/` in Chrome, and open the printed receiver URL in the TV's Silk browser.
