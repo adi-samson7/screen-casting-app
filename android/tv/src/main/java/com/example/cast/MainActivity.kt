@@ -1,14 +1,9 @@
 package com.example.cast
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.net.wifi.WifiManager
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -19,35 +14,30 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetSocketAddress
+import com.example.cast.core.BackdropView
+import com.example.cast.core.Glass
+import com.example.cast.core.MonitorIconView
+import com.example.cast.core.PcDiscovery
+import com.example.cast.core.RadarView
 
 /**
  * Home screen. Lists every PC running the Cast app on this network (by name) and lets you pick one.
  * Nothing connects automatically. After you pick a PC, the TV shows a 6-digit code to enter on that PC.
  * You can also type an address by hand (e.g. 192.168.1.20:3000).
+ * Finding the PCs is done by the shared [PcDiscovery].
  */
 class MainActivity : Activity() {
     companion object {
-        const val DISCOVERY_PORT = 41234
         const val EXTRA_ADDR = "addr"
         const val EXTRA_NAME = "name"
-        private const val TTL_MS = 7000L
     }
 
-    private class Pc(val name: String, val addr: String, var seen: Long)
-
-    private val ui = Handler(Looper.getMainLooper())
-    private val pcs = LinkedHashMap<String, Pc>()
+    private lateinit var discovery: PcDiscovery
     private var shown: List<String> = emptyList()
 
     private lateinit var status: TextView
     private lateinit var listBox: LinearLayout
     private lateinit var input: EditText
-    private var socket: DatagramSocket? = null
-    private var lock: WifiManager.MulticastLock? = null
-    @Volatile private var running = false
 
     private fun dp(v: Int) = Glass.dp(this, v)
 
@@ -119,19 +109,19 @@ class MainActivity : Activity() {
         col.addView(bar, LinearLayout.LayoutParams(-1, -2))
 
         setContentView(root)
+        discovery = PcDiscovery(this, onChanged = { render() },
+            onError = { status.text = "Auto-discovery unavailable – type the PC address below." })
         render()
     }
 
     override fun onResume() {
         super.onResume()
-        startDiscovery()
-        ui.post(prune)
+        discovery.start()
     }
 
     override fun onPause() {
         super.onPause()
-        ui.removeCallbacks(prune)
-        stopDiscovery()
+        discovery.stop()
     }
 
     private fun manual(cls: Class<*>) {
@@ -147,15 +137,7 @@ class MainActivity : Activity() {
 
     // ---- list of PCs ----
 
-    private val prune = object : Runnable {
-        override fun run() {
-            val now = SystemClock.elapsedRealtime()
-            if (pcs.values.removeAll { now - it.seen > TTL_MS }) render()
-            ui.postDelayed(this, 2000)
-        }
-    }
-
-    private fun pcCard(pc: Pc): View = LinearLayout(this).apply {
+    private fun pcCard(pc: PcDiscovery.Pc): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(32), dp(24), dp(32), dp(24))
         isFocusable = true; isClickable = true
@@ -171,6 +153,7 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
+        val pcs = discovery.pcs
         val keys = pcs.values.map { it.addr + "|" + it.name }
         val expected = if (keys.isEmpty()) 1 else keys.size
         if (keys == shown && listBox.childCount == expected && status.text.isNotEmpty()) return
@@ -187,51 +170,5 @@ class MainActivity : Activity() {
             // take focus unless the user is already typing / using the buttons below
             if (hadFocus || currentFocus == null || (currentFocus === input && input.text.isEmpty())) listBox.getChildAt(0)?.requestFocus()
         }
-    }
-
-    // ---- discovery (UDP beacon "CASTAPP|<port>|<name>") ----
-
-    private fun startDiscovery() {
-        if (running) return
-        running = true
-        try {
-            val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            lock = wifi.createMulticastLock("cast-discovery").apply { setReferenceCounted(false); acquire() }
-        } catch (_: Exception) {}
-        Thread {
-            try {
-                val s = DatagramSocket(null)
-                s.reuseAddress = true
-                s.bind(InetSocketAddress(DISCOVERY_PORT))
-                socket = s
-                val buf = ByteArray(256)
-                while (running) {
-                    val p = DatagramPacket(buf, buf.size)
-                    s.receive(p)
-                    val parts = String(p.data, 0, p.length).split("|", limit = 3)
-                    if (parts.size < 2 || parts[0] != "CASTAPP") continue
-                    val port = parts[1].trim().toIntOrNull() ?: continue
-                    val host = p.address.hostAddress ?: continue
-                    val name = parts.getOrNull(2)?.trim().takeUnless { it.isNullOrEmpty() } ?: host
-                    val addr = "$host:$port"
-                    ui.post {
-                        val now = SystemClock.elapsedRealtime()
-                        val old = pcs[addr]
-                        if (old == null || old.name != name) pcs[addr] = Pc(name, addr, now) else old.seen = now
-                        render()
-                    }
-                }
-            } catch (e: Exception) {
-                if (running) ui.post { status.text = "Auto-discovery unavailable – type the PC address below." }
-            }
-        }.start()
-    }
-
-    private fun stopDiscovery() {
-        running = false
-        try { socket?.close() } catch (_: Exception) {}
-        socket = null
-        try { lock?.release() } catch (_: Exception) {}
-        lock = null
     }
 }

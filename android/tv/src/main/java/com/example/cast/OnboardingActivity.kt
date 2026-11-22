@@ -21,6 +21,8 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.example.cast.core.BackdropView
+import com.example.cast.core.Glass
 
 /**
  * First-launch onboarding: "Welcome" then "Connect a device". Shown once; MainActivity checks [DONE_KEY].

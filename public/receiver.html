@@ -7,10 +7,11 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: system-ui, sans-serif; overflow: hidden; }
   video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: none; }
-  #idle { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; }
-  #code { font-size: 140px; letter-spacing: 24px; font-weight: 700; }
-  #hint { font-size: 30px; color: #9aa; text-align: center; line-height: 1.5; }
-  #status { position: fixed; bottom: 20px; right: 28px; font-size: 20px; color: #678; }
+  #idle { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(8px, 2.4vw, 24px); padding: 0 12px; box-sizing: border-box; }
+  #code { font-size: clamp(36px, 15vw, 140px); letter-spacing: .17em; margin-right: -.17em; font-weight: 700; }
+  #hint { font-size: clamp(13px, 3.3vw, 30px); color: #9aa; text-align: center; line-height: 1.5; }
+  #hint2 { font-size: clamp(12px, 2.8vw, 26px); color: #9aa; }
+  #status { position: fixed; bottom: 12px; right: 16px; font-size: clamp(11px, 2.3vw, 20px); color: #678; }
 </style>
 </head>
 <body>
@@ -18,13 +19,17 @@
 <div id="idle">
   <div id="hint">Open this address on your PC, click <b>Start casting</b>,<br>and enter the code</div>
   <div id="code">------</div>
-  <div id="hint2" style="font-size:26px;color:#9aa"></div>
+  <div id="hint2"></div>
 </div>
-<button id="soundBtn" style="display:none;position:fixed;top:40px;left:50%;transform:translateX(-50%);z-index:9;font-size:40px;padding:24px 48px;border-radius:16px;border:4px solid #ff9900;background:#222;color:#fff">🔊 Press Select to enable sound</button>
+<button id="soundBtn" style="display:none;position:fixed;top:40px;left:50%;transform:translateX(-50%);z-index:9;font-size:clamp(16px,5vw,40px);padding:clamp(10px,3vw,24px) clamp(16px,6vw,48px);border-radius:16px;border:4px solid #ff9900;background:#222;color:#fff">🔊 Press Select to enable sound</button>
 <div id="status">connecting…</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const embedded = params.has('embed');          // inside the PC app's Receive tab (phone -> PC)
+const myName = params.get('name');              // shown to the sender as "Casting to <name>"
+if (embedded) $('hint').innerHTML = 'On your phone open <b>Cast Sender</b>,<br>choose this PC and enter the code';
 const soundBtn = $('soundBtn');
 const video = $('v'), idle = $('idle'), codeEl = $('code'), statusEl = $('status');
 $('hint2').textContent = location.host;
@@ -60,7 +65,7 @@ function reportAudio() {
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}`);
-  ws.onopen = () => { statusEl.textContent = 'ready'; ws.send(JSON.stringify({ type: 'register' })); };
+  ws.onopen = () => { statusEl.textContent = 'ready'; ws.send(JSON.stringify({ type: 'register', name: myName || undefined })); };
   ws.onclose = () => { statusEl.textContent = 'reconnecting…'; resetPeer(); setTimeout(connect, 2000); };
   ws.onmessage = async (e) => {
     const m = JSON.parse(e.data);
@@ -84,6 +89,7 @@ async function handleOffer(m) {
     video.srcObject = e.streams[0];
     applyAudio();
     video.style.display = 'block'; idle.style.display = 'none';
+    try { if (window.parent !== window) parent.postMessage({ cast: 'receiving' }, location.origin); } catch {}   // lets the PC app jump to the Receive tab
     video.play().catch((err) => { statusEl.textContent = 'play blocked: ' + err.name + ' - press OK on remote'; });
     statusEl.textContent = 'receiving stream…';
   };
@@ -118,6 +124,12 @@ function showAudioBadge() {
   showAudioBadge.t = setTimeout(() => { statusEl.textContent = ''; }, 4000);
 }
 video.addEventListener('playing', () => { statusEl.textContent = ''; });
+
+// double-click / double-tap: full screen on and off
+document.addEventListener('dblclick', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+});
 
 connect();
 </script>

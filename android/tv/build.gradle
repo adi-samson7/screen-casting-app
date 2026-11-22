@@ -10,8 +10,8 @@ android {
         applicationId "com.example.cast"
         minSdk 22          // Fire TV Stick (Fire OS 5+)
         targetSdk 34
-        versionCode 9
-        versionName "0.9"
+        versionCode 10
+        versionName "0.10"
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -29,6 +29,6 @@ android {
 }
 
 dependencies {
-    implementation 'io.getstream:stream-webrtc-android:1.3.10'   // org.webrtc.* with MediaCodec hardware decoding
+    implementation project(':core')                              // shared: glass UI, PC discovery, WebRTC (org.webrtc.* with MediaCodec hardware decoding)
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'          // WebSocket signaling
 }

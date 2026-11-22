@@ -43,6 +43,8 @@
   .addr.rec .tag { color: #ff9900; }
   details.more { margin: 10px 0 4px; }
   details.more summary { cursor: pointer; font-size: 12px; color: #8a8a96; margin-bottom: 4px; }
+  .rxbox { background: #000; border-radius: 12px; overflow: hidden; height: 330px; }
+  .rxbox iframe { width: 100%; height: 100%; border: 0; display: block; }
   button.link { background: none; color: #ff9900; width: auto; padding: 4px 0; margin: 8px 0 0; font-size: 13px; font-weight: 500; }
   label { display: flex; gap: 8px; align-items: center; margin-top: 14px; font-size: 14px; color: #bbb; }
 </style>
@@ -52,6 +54,7 @@
   <h1 style="display:flex;align-items:center;gap:12px"><img src="logo.png" alt="" width="38" height="38">Cast to Fire TV</h1>
   <div class="tabs" role="tablist">
     <button class="tab on" id="tabBtnApp" role="tab">App</button>
+    <button class="tab" id="tabBtnReceive" role="tab">Receive</button>
     <button class="tab" id="tabBtnBrowser" role="tab">Browser mode</button>
   </div>
 <section id="tab-app">
@@ -91,6 +94,13 @@
   <div id="diag" style="margin-top:10px;font-size:12px;color:#6c6c78;text-align:center;line-height:1.5"></div>
 </section>
 
+<section id="tab-receive" hidden>
+  <p>Show a <b>phone's screen</b> on this PC. On the phone open <b>Cast Sender</b>, choose this PC and enter the code below.</p>
+  <div class="rxbox"><iframe id="rxFrame" title="Receiver" allow="fullscreen; autoplay"></iframe></div>
+  <button id="rxFull">Full screen</button>
+  <div class="note" style="margin-top:10px">Double-click the picture for full screen (Esc to leave). The phone and this PC must be on the same Wi-Fi.</div>
+</section>
+
 <section id="tab-browser" hidden>
   <p>Cast to another PC, a phone or a tablet that has no app: open a web page on it instead. Both devices must be on the same Wi-Fi.</p>
   <ol class="steps">
@@ -110,14 +120,22 @@ const btn = $('btn'), statusEl = $('status'), codeEl = $('code');
 let ws, pc, stream, casting = false, keep = null;
 
 // ---- tabs ----
+let pcName = 'This PC';
 function showTab(name) {
-  const app = name === 'app';
-  $('tab-app').hidden = !app; $('tab-browser').hidden = app;
-  $('tabBtnApp').classList.toggle('on', app); $('tabBtnBrowser').classList.toggle('on', !app);
-  if (app) codeEl.focus();
+  for (const t of ['app', 'receive', 'browser']) {
+    $('tab-' + t).hidden = t !== name;
+    $('tabBtn' + t[0].toUpperCase() + t.slice(1)).classList.toggle('on', t === name);
+  }
+  if (name === 'app') codeEl.focus();
+  // the receiver page is loaded the first time the tab is opened, and keeps running (so a phone can connect any time after)
+  if (name === 'receive' && !$('rxFrame').getAttribute('src')) $('rxFrame').src = 'receiver.html?embed=1&name=' + encodeURIComponent(pcName);
 }
 $('tabBtnApp').onclick = () => showTab('app');
+$('tabBtnReceive').onclick = () => showTab('receive');
 $('tabBtnBrowser').onclick = () => showTab('browser');
+$('rxFull').onclick = () => $('rxFrame').requestFullscreen().catch(() => {});
+// when a phone starts casting, the receiver page tells us so we can show it
+window.addEventListener('message', (e) => { if (e.origin === location.origin && e.data && e.data.cast === 'receiving') showTab('receive'); });
 $('goApp').onclick = () => showTab('app');
 
 // ---- copy buttons for the receiver addresses ----
@@ -391,6 +409,7 @@ function watchEncoder() {
   }, 2000);
 }
 fetch('/api/info').then((r) => r.json()).then((i) => {
+  pcName = i.name;
   $('intro').innerHTML = `On your Fire TV open <b>Cast Receiver</b>, choose <b>${i.name}</b> in the list, then enter the 6-digit code shown on the TV.`;
   const list = $('addrList'); list.textContent = '';
   const details = (i.details && i.details.length) ? i.details : i.addresses.map((a) => ({ address: a, kind: '' }));

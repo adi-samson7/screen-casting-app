@@ -32,6 +32,7 @@
 - [Quick start](#quick-start)
 - [Build the PC app](#build-the-pc-app)
 - [Build and install the TV app](#build-and-install-the-tv-app)
+- [Phone app: cast your phone to a PC](#phone-app-cast-your-phone-to-a-pc)
 - [Using the app](#using-the-app)
 - [Configuration](#configuration)
 - [Project structure](#project-structure)
@@ -54,6 +55,7 @@
 | 🔎 **Automatic discovery** | The TV lists every PC on the network by name. No typing IP addresses |
 | 🔢 **6-digit pairing** | You choose the PC and enter the code shown on the TV; nothing connects automatically |
 | 🌐 **Browser mode** | Cast to another PC, a phone or a tablet through a web page, with a one-click Copy button and automatic Wi-Fi address detection |
+| 📱 **Phone to PC** | An Android app (Cast Sender) casts your phone's screen to a PC, which shows it in a new **Receive** tab |
 | 📊 **Live stream info** | Codec, decoder, resolution, fps and packet loss on the PC and the TV, with a show/hide switch |
 | ✨ **Glass-style TV UI** | Onboarding on first launch, PC cards, and a pairing screen |
 | 📦 **Installer** | A Windows setup wizard with shortcuts and an uninstaller |
@@ -62,7 +64,7 @@
 
 ## How it works
 
-Two apps work together: the **PC app** captures and sends, and the **TV app** receives and plays.
+The **PC app** captures and sends to the **TV app**, which receives and plays. A third app, **Cast Sender** for Android phones, sends a phone's screen to the PC.
 
 ```mermaid
 flowchart TD
@@ -131,14 +133,14 @@ An **APK** is the installer file for an Android app (like `.exe` on Windows). Yo
 Install **Android Studio** and open it once so it downloads the Android SDK. Then, in PowerShell:
 
 ```powershell
-cd firetv-app
+cd android
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-.\gradlew.bat assembleRelease
+.\gradlew.bat :tv:assembleRelease
 ```
 
 - The first build downloads tools and can take several minutes; later builds are faster.
-- When it prints `BUILD SUCCESSFUL`, the file is at `firetv-app\app\build\outputs\apk\release\app-release.apk`.
-- If it reports a missing SDK platform or `sdk.dir`, open the `firetv-app` folder in Android Studio once (File → Open). It creates the settings file and offers to install what is missing.
+- When it prints `BUILD SUCCESSFUL`, the file is at `android\tv\build\outputs\apk\release\tv-release.apk`.
+- If it reports a missing SDK platform or `sdk.dir`, open the `android` folder in Android Studio once (File → Open). It creates the settings file and offers to install what is missing.
 - Prefer clicking? In Android Studio choose **Build → Build APK(s)**.
 
 ### 2. Prepare the TV (one time)
@@ -159,13 +161,38 @@ The TV shows **"Allow USB debugging?"**. Choose **Always allow** and press OK. C
 
 ```powershell
 .\adb.exe devices                        # your TV should be listed as "device"
-.\adb.exe install -r "C:\path\to\app-release.apk"
+.\adb.exe install -r "C:\path\to\tv-release.apk"
 ```
 
 `Success` means it is installed (`-r` replaces an existing copy, so the same command also updates the app).
 Open it from **Home → Apps & Channels → Cast Receiver**.
 
 > No Android Studio? Download Google's free **SDK Platform-Tools** zip, unzip it, and run the same `adb` commands from that folder.
+
+---
+
+## Phone app: cast your phone to a PC
+
+**Cast Sender** is a separate Android app. It shows your phone's screen on a PC running the Cast app.
+
+**Build it** (same tools as the TV app):
+```powershell
+cd android
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+.\gradlew.bat :phone:assembleRelease
+```
+The file is `android\phone\build\outputs\apk\release\phone-release.apk`.
+
+**Install it on the phone:** copy the APK to the phone (USB cable, Google Drive, …), open it, and allow **Install unknown apps** when Android asks. Needs Android 7 or newer.
+
+**Use it:**
+1. On the PC, open the Cast app and go to the **Receive** tab. It shows a 6-digit code.
+2. On the phone, open **Cast Sender**. It lists the PCs on your Wi-Fi: pick yours.
+3. Enter the code, choose a quality, and press **Start casting**. Android asks for permission to share your screen (choose **Share entire screen**).
+4. The phone's screen appears in the PC's Receive tab. Double-click it (or press **Full screen**) to enlarge it. Rotating the phone resizes the picture.
+5. Stop from the app, from the notification, or from the PC.
+
+Good to know: this first version sends **video only (no sound)**, and a still screen sends very few frames, so the picture can look frozen until something moves. Sound and a steadier frame rate are planned.
 
 ---
 
@@ -210,13 +237,20 @@ The PC page remembers Quality, Always smooth and Show stream info. The TV app re
 │  ├─ sender.html          PC interface: capture, WebRTC sender, controls
 │  └─ receiver.html        Browser receiver (Browser mode)
 ├─ pc-audio.ps1            Reads / sets Windows volume and mute
-├─ firetv-app/             Android TV app (Kotlin)
-│  └─ app/src/main/java/com/example/cast/
-│     ├─ MainActivity.kt        Finds PCs, lists them
-│     ├─ ReceiverActivity.kt    WebRTC receiver + hardware decoder
-│     ├─ OnboardingActivity.kt  First-launch screens
-│     ├─ Glass.kt               Shared glass-style UI
-│     └─ WebActivity.kt         Browser-mode fallback
+├─ android/                Android project (Kotlin), three modules
+│  ├─ core/                Shared: glass-style UI (Glass.kt), PC discovery, WebRTC helper
+│  ├─ tv/                  Fire TV / Android TV receiver app ("Cast Receiver")
+│  │  └─ src/main/java/com/example/cast/
+│  │     ├─ MainActivity.kt        Finds PCs, lists them
+│  │     ├─ ReceiverActivity.kt    WebRTC receiver + hardware decoder
+│  │     ├─ OnboardingActivity.kt  First-launch screens
+│  │     └─ WebActivity.kt         Browser-mode fallback
+│  └─ phone/               Phone sender app ("Cast Sender")
+│     └─ src/main/java/com/example/castsender/
+│        ├─ MainActivity.kt        PC list, code entry, casting screen
+│        ├─ CastService.kt         Foreground service: capture + WebRTC sender
+│        ├─ ProjectionCapturer.kt  Screen capture that survives rotation
+│        └─ Quality.kt             Quality presets
 ├─ assets/                 Logo and Windows icon
 └─ docs/screenshots/       Images used in this README
 ```
@@ -230,7 +264,7 @@ The PC page remembers Quality, Always smooth and Show stream info. The TV app re
 | PC shell | Electron 33 |
 | Server | Node.js, `ws` (WebSocket) |
 | Media | WebRTC: H.264 video, Opus audio (stereo) |
-| TV app | Kotlin, `stream-webrtc-android`, OkHttp, MediaCodec |
+| TV and phone apps | Kotlin, `stream-webrtc-android`, OkHttp, MediaCodec (TV decode / phone encode), MediaProjection (phone screen capture) |
 | Windows volume | PowerShell with COM (`IAudioEndpointVolume`) |
 | Packaging | `@electron/packager`, `electron-builder` (NSIS), Gradle |
 
@@ -274,7 +308,7 @@ Choose **Smooth** quality, move closer to the router (5 GHz works best), and che
 ## Limitations and security
 
 - Designed for a **trusted home network**. The 6-digit code is a simple pairing code, not strong authentication, and signaling is not encrypted. Do not use it on public or shared Wi-Fi.
-- One PC to one TV at a time. Primary screen only. Windows only on the PC side (the laptop volume control and system-audio capture use Windows features).
+- One PC to one TV at a time. Primary screen only. The phone app sends to a PC only (not to a TV yet) and has no sound yet. Windows only on the PC side (the laptop volume control and system-audio capture use Windows features).
 - Works on the local network only (no internet relay).
 - DRM-protected video (Netflix and similar) shows black; that is a platform restriction.
 - The laptop volume control changes Windows' master volume.

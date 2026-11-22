@@ -17,7 +17,9 @@ app.commandLine.appendSwitch('enable-features', [
 ].join(','));
 // The window is often minimized/behind other windows while casting; don't throttle it.
 // (CalculateNativeWinOcclusion makes Chromium treat a covered window as hidden and slow its capture/encode.)
-app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+// WebRtcHideLocalIpsWithMdns: the Receive tab has no camera/screen permission, so Chromium would hide its address behind a
+// "xxxx.local" name that Android cannot resolve. Switching that off lets a phone connect straight to this PC.
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,WebRtcHideLocalIpsWithMdns');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');

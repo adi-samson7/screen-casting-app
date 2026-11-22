@@ -14,6 +14,9 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.example.cast.core.BackdropView
+import com.example.cast.core.Glass
+import com.example.cast.core.SdpAdapter
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -408,12 +411,4 @@ class ReceiverActivity : Activity() {
         http.dispatcher.executorService.shutdown()
         super.onDestroy()
     }
-}
-
-/** SdpObserver with no-op defaults. */
-open class SdpAdapter : SdpObserver {
-    override fun onCreateSuccess(d: SessionDescription) {}
-    override fun onSetSuccess() {}
-    override fun onCreateFailure(e: String?) {}
-    override fun onSetFailure(e: String?) {}
 }

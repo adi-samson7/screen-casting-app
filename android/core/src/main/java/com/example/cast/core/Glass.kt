@@ -1,4 +1,4 @@
-package com.example.cast
+package com.example.cast.core
 
 import android.animation.ValueAnimator
 import android.content.Context

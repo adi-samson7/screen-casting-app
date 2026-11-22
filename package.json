@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "app": "electron .",
-    "pack": "electron-packager . CastApp --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --prune=true --icon=assets/icon.ico --ignore=\"^/(dist|dist-new|firetv-app|release|docs|README.md|assets/logo)\"",
+    "pack": "electron-packager . CastApp --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --prune=true --icon=assets/icon.ico --ignore=\"^/(dist|dist-new|android|release|docs|README.md|assets/logo)\"",
     "installer": "electron-builder --win nsis"
   },
   "dependencies": {

@@ -1,0 +1,10 @@
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+    repositories { google(); mavenCentral() }
+}
+rootProject.name = "Cast"
+include ':core'    // shared code: glass UI, PC discovery, WebRTC helpers
+include ':tv'      // Fire TV / Android TV receiver app
+include ':phone'   // phone sender app (casts the phone screen to a PC)
