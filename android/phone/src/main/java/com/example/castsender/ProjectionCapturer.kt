@@ -35,6 +35,9 @@ class ProjectionCapturer(
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
 
+    /** The active screen-capture session (needed to capture the phone's audio too). */
+    val mediaProjection: MediaProjection? get() = projection
+
     private val callback = object : MediaProjection.Callback() {
         override fun onStop() { onProjectionStopped() }        // the user ended sharing from the system UI
     }

@@ -44,7 +44,8 @@ function applyAudio() {
   video.volume = tvVolume;
   if (video.srcObject) {
     video.play().then(() => { if (want) unlocked = true; soundBtn.style.display = 'none'; reportAudio(); })
-      .catch(() => {
+      .catch((err) => {
+        if (err && err.name === 'AbortError') return;   // a newer play() / stream change replaced this one: not a block
         // Autoplay with sound blocked: fall back to muted and ask for a click/Select press.
         video.muted = true; unlocked = false;
         video.play().catch(() => {});
@@ -85,8 +86,12 @@ async function handleOffer(m) {
   pc.ontrack = (e) => {
     try { e.receiver.jitterBufferTarget = 100; } catch {}   // keep the TV-side buffer small (less delay)
     try { e.receiver.playoutDelayHint = 0.1; } catch {}
-    video.muted = true;                       // muted autoplay is always allowed; press any remote key for sound
-    video.srcObject = e.streams[0];
+    // A stream with video AND sound fires this handler once per track. Attach the stream only once: re-attaching reloads the
+    // element and interrupts the first play(), which used to be mistaken for "autoplay blocked" and left the sound muted.
+    if (video.srcObject !== e.streams[0]) {
+      video.muted = true;                     // muted autoplay is always allowed; press any remote key for sound
+      video.srcObject = e.streams[0];
+    }
     applyAudio();
     video.style.display = 'block'; idle.style.display = 'none';
     try { if (window.parent !== window) parent.postMessage({ cast: 'receiving' }, location.origin); } catch {}   // lets the PC app jump to the Receive tab

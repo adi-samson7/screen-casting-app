@@ -1,5 +1,6 @@
 package com.example.castsender
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,9 +8,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.hardware.display.DisplayManager
+import android.media.MediaRecorder
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
@@ -25,9 +32,12 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import org.webrtc.AudioSource
+import org.webrtc.AudioTrack
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
+import org.webrtc.ExternalAudioProcessingFactory
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStreamTrack
@@ -38,6 +48,7 @@ import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.TimeUnit
 
 /**
@@ -55,6 +66,7 @@ class CastService : Service() {
         const val EXTRA_NAME = "name"          // the PC's name
         const val EXTRA_CODE = "code"          // 6-digit code shown on the PC
         const val EXTRA_QUALITY = "quality"
+        const val EXTRA_AUDIO = "audio"        // true: also send the phone's sound (Android 10+, needs the microphone permission)
         const val EXTRA_DATA = "projection"    // result Intent of the screen-capture permission dialog
         private const val CHANNEL = "cast"
         private const val NOTIF_ID = 1
@@ -69,6 +81,13 @@ class CastService : Service() {
     private lateinit var code: String
     private lateinit var quality: Quality
     private var projectionData: Intent? = null
+    private var audioWanted = false            // sound requested AND allowed
+    private var audioStatus = ""               // shown on the casting screen: "sound on" / "no sound (…)"
+    private var playback: PlaybackAudio? = null
+    private var adm: JavaAudioDeviceModule? = null
+    private var audioProcessing: ExternalAudioProcessingFactory? = null
+    private var audioSource: AudioSource? = null
+    private var audioTrack: AudioTrack? = null
 
     private var egl: EglBase? = null
     private var factory: PeerConnectionFactory? = null
@@ -79,6 +98,8 @@ class CastService : Service() {
     private var pc: PeerConnection? = null
     private var ws: WebSocket? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var pinnedToWifi = false
+    private var wifiCallback: ConnectivityManager.NetworkCallback? = null
     private var displayListener: DisplayManager.DisplayListener? = null
 
     private val pendingIce = ArrayList<IceCandidate>()
@@ -103,6 +124,15 @@ class CastService : Service() {
         pcName = intent.getStringExtra(EXTRA_NAME) ?: addr
         code = intent.getStringExtra(EXTRA_CODE) ?: ""
         quality = Quality.of(intent.getStringExtra(EXTRA_QUALITY))
+        val askedForSound = intent.getBooleanExtra(EXTRA_AUDIO, false)
+        audioWanted = askedForSound && Build.VERSION.SDK_INT >= 29 &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        audioStatus = when {
+            audioWanted -> "sound on"
+            askedForSound && Build.VERSION.SDK_INT < 29 -> "no sound (needs Android 10+)"
+            askedForSound -> "no sound (permission denied)"
+            else -> ""
+        }
         projectionData = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(EXTRA_DATA, Intent::class.java)
         else @Suppress("DEPRECATION") intent.getParcelableExtra(EXTRA_DATA)
 
@@ -111,8 +141,47 @@ class CastService : Service() {
         CastState.update { phase = CastState.Phase.CONNECTING; target = pcName; detail = ""; message = "" }
         try { wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
             .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "cast-sender").apply { acquire() } } catch (_: Exception) {}
-        connect()
+        pinToWifi { connect() }                    // connect only once the Wi-Fi is pinned (or after a short wait)
         return START_NOT_STICKY
+    }
+
+    // ---------------- network ----------------
+
+    /**
+     * The PC is on the Wi-Fi, so keep every connection of this app (signaling and the WebRTC media) on the Wi-Fi network.
+     * Without this, Android can switch its "default network" (e.g. to mobile data when the Wi-Fi has no internet, or when
+     * connectivity is re-checked) and abort the cast's connections with "Software caused connection abort".
+     * [then] runs once the Wi-Fi is pinned, or after 1.5 s if there is no Wi-Fi to pin (e.g. a wired or hotspot connection).
+     */
+    private fun pinToWifi(then: () -> Unit) {
+        var done = false
+        val proceed = { if (!done) { done = true; then() } }
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build()
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    // also runs again if the phone moves to another Wi-Fi: follow it
+                    val ok = try { cm.bindProcessToNetwork(network) } catch (e: Exception) { Log.w(TAG, "bind failed", e); false }
+                    pinnedToWifi = ok
+                    Log.i(TAG, "pinned to Wi-Fi network $network: $ok")
+                    ui.post { proceed() }
+                }
+            }
+            wifiCallback = cb
+            cm.registerNetworkCallback(request, cb)
+            ui.postDelayed({ proceed() }, 1500)
+        } catch (e: Exception) {
+            Log.w(TAG, "could not pin to Wi-Fi", e)
+            proceed()
+        }
+    }
+
+    private fun unpinWifi() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        try { wifiCallback?.let { cm.unregisterNetworkCallback(it) } } catch (_: Exception) {}
+        wifiCallback = null
+        if (pinnedToWifi) { try { cm.bindProcessToNetwork(null) } catch (_: Exception) {}; pinnedToWifi = false }
     }
 
     // ---------------- notification ----------------
@@ -132,8 +201,12 @@ class CastService : Service() {
             .setOngoing(true)
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_notify), "Stop", stop).build())
             .build()
-        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        else startForeground(NOTIF_ID, n)
+        if (Build.VERSION.SDK_INT >= 29) {
+            // Android 11+: recording audio from a service also needs the "microphone" service type (only when we hold the permission)
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            if (audioWanted && Build.VERSION.SDK_INT >= 30) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            startForeground(NOTIF_ID, n, types)
+        } else startForeground(NOTIF_ID, n)
     }
 
     // ---------------- signaling ----------------
@@ -146,7 +219,6 @@ class CastService : Service() {
                 ui.post { if (!stopped) send(JSONObject().put("type", "join").put("code", code)) }
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.i(TAG, "ws message: ${text.take(60)}")
                 ui.post { if (!stopped) handle(JSONObject(text)) }
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -188,7 +260,23 @@ class CastService : Service() {
         try {
             PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(applicationContext).createInitializationOptions())
             val eglBase = EglBase.create().also { egl = it }
-            val f = PeerConnectionFactory.builder()
+            val fb = PeerConnectionFactory.builder()
+            if (audioWanted) {
+                // WebRTC records the microphone in 10 ms pieces; PlaybackAudio swaps each piece for the phone's own sound.
+                val pb = PlaybackAudio().also { playback = it }
+                adm = JavaAudioDeviceModule.builder(applicationContext)
+                    .setSampleRate(PlaybackAudio.SAMPLE_RATE).setInputSampleRate(PlaybackAudio.SAMPLE_RATE)
+                    .setUseStereoInput(false)               // mono: this library only hands over one channel per 10 ms, so mix L+R into it
+                    .setAudioSource(MediaRecorder.AudioSource.MIC)
+                    .setUseHardwareAcousticEchoCanceler(false).setUseHardwareNoiseSuppressor(false)
+                    .createAudioDeviceModule()
+                fb.setAudioDeviceModule(adm)
+                // the hook that swaps each 10 ms of microphone audio for the phone's own sound
+                val apf = ExternalAudioProcessingFactory().also { audioProcessing = it }
+                apf.setCapturePostProcessing(pb)
+                fb.setAudioProcessingFactory(apf)
+            }
+            val f = fb
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))   // hardware H.264 when available
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
                 .createPeerConnectionFactory()
@@ -203,6 +291,19 @@ class CastService : Service() {
             cap.initialize(st, applicationContext, src.capturerObserver)
             cap.startCapture(w, h, quality.fps)
             track = f.createVideoTrack("screen", src)
+            if (audioWanted) {
+                val projection = cap.mediaProjection
+                val ok = projection != null && playback?.start(projection) == true
+                if (ok) {
+                    // music, not a phone call: switch off the voice processing (echo cancel, noise suppression, auto gain)
+                    val c = MediaConstraints()
+                    for (k in listOf("googEchoCancellation", "googAutoGainControl", "googNoiseSuppression", "googHighpassFilter"))
+                        c.mandatory.add(MediaConstraints.KeyValuePair(k, "false"))
+                    val asrc = f.createAudioSource(c).also { audioSource = it }
+                    audioTrack = f.createAudioTrack("audio", asrc)
+                } else { audioWanted = false; audioStatus = "no sound (could not capture)" }
+            }
+            CastState.update { audioOn = audioTrack != null }
             watchRotation()
             createPeer(f)
         } catch (e: Exception) {
@@ -239,6 +340,14 @@ class CastService : Service() {
         val p = f.createPeerConnection(config, observer) ?: run { stopCasting("Could not create the connection"); return }
         pc = p
         val sender = p.addTrack(track, listOf("cast"))
+        audioTrack?.let { at ->
+            val aSender = p.addTrack(at, listOf("cast"))
+            try {
+                val ap = aSender.parameters
+                for (e in ap.encodings) e.maxBitrateBps = 128_000
+                aSender.setParameters(ap)
+            } catch (e: Throwable) { Log.w(TAG, "audio parameters not applied", e) }
+        }
 
         // Prefer H.264 (the PC decodes it in hardware); keep the other codecs as fallback.
         try {
@@ -257,7 +366,8 @@ class CastService : Service() {
         } catch (e: Throwable) { Log.w(TAG, "sender parameters not applied", e) }
 
         p.createOffer(object : SdpAdapter() {
-            override fun onCreateSuccess(d: SessionDescription) {
+            override fun onCreateSuccess(created: SessionDescription) {
+                val d = SessionDescription(created.type, if (audioTrack != null) stereoOpus(created.description) else created.description)
                 p.setLocalDescription(object : SdpAdapter() {
                     override fun onSetSuccess() {
                         ui.post {
@@ -271,6 +381,16 @@ class CastService : Service() {
             override fun onCreateFailure(e: String?) { ui.post { stopCasting("Could not start the connection") } }
         }, MediaConstraints())
         ui.postDelayed(statsTick, 2000)
+    }
+
+    /** Opus defaults to ~32 kbps and effectively mono. Ask for stereo at music quality (same as the PC app does). */
+    private fun stereoOpus(sdp: String): String {
+        val m = Regex("a=rtpmap:(\\d+) opus/48000/2").find(sdp) ?: return sdp
+        val id = m.groupValues[1]
+        return sdp.replace(Regex("(a=fmtp:$id )([^\\r\\n]*)")) { r ->
+            r.groupValues[1] + r.groupValues[2].replace(Regex(";?(stereo|sprop-stereo|maxaveragebitrate|cbr)=\\d+"), "") +
+                ";stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=0"
+        }
     }
 
     /** Ask the encoder to start at (and stay near) the target bitrate instead of probing up from a low guess. */
@@ -343,6 +463,9 @@ class CastService : Service() {
             if (p != null && !stopped) {
                 p.getStats { report ->
                     for (s in report.statsMap.values) {
+                        // diagnostics: what the audio send path sees (level 0..1 of the sound going into the encoder)
+                        if (s.type == "media-source" && s.members["kind"] == "audio" && ((s.members["audioLevel"] as? Number)?.toDouble() ?: 0.0) > 0.001)
+                            Log.d(TAG, "audio source level=${s.members["audioLevel"]}")
                         if (s.type != "outbound-rtp" || s.members["kind"] != "video") continue
                         val bytes = (s.members["bytesSent"] as? Number)?.toLong() ?: 0L
                         val now = System.currentTimeMillis()
@@ -351,7 +474,8 @@ class CastService : Service() {
                         val enc = (s.members["encoderImplementation"] ?: "?").toString()
                         val line = "${s.members["frameWidth"] ?: 0}×${s.members["frameHeight"] ?: 0} · " +
                             "${(s.members["framesPerSecond"] as? Number)?.toInt() ?: 0} fps · " +
-                            (if (kbps >= 1000) "%.1f Mbps".format(kbps / 1000.0) else "$kbps kbps") + " · $enc"
+                            (if (kbps >= 1000) "%.1f Mbps".format(kbps / 1000.0) else "$kbps kbps") + " · $enc" +
+                            (if (audioStatus.isNotEmpty()) " · $audioStatus" else "")
                         CastState.update { detail = line }
                     }
                 }
@@ -362,28 +486,53 @@ class CastService : Service() {
 
     // ---------------- shutdown ----------------
 
+    /**
+     * Ends the cast. The screen is told at once; the heavy clean-up (screen capture, audio recorder, WebRTC engine) runs on a
+     * background thread, because releasing them can take seconds and would freeze the app if done on the main thread.
+     */
     private fun stopCasting(reason: String) {
         if (stopped) return
         stopped = true
         Log.i(TAG, "stopCasting: $reason")
         ui.removeCallbacksAndMessages(null)
+        CastState.update { phase = CastState.Phase.IDLE; detail = ""; message = reason; audioOn = false }
         try { ws?.send("""{"type":"bye"}"""); ws?.close(1000, null) } catch (_: Exception) {}
         ws = null
         try { displayListener?.let { (getSystemService(DISPLAY_SERVICE) as DisplayManager).unregisterDisplayListener(it) } } catch (_: Exception) {}
-        try { capturer?.stopCapture() } catch (_: Exception) {}
-        try { capturer?.dispose() } catch (_: Exception) {}
-        try { track?.dispose() } catch (_: Exception) {}
-        try { source?.dispose() } catch (_: Exception) {}
-        try { helper?.dispose() } catch (_: Exception) {}
-        try { pc?.close(); pc?.dispose() } catch (_: Exception) {}
-        try { factory?.dispose() } catch (_: Exception) {}
-        try { egl?.release() } catch (_: Exception) {}
+        displayListener = null
         try { wifiLock?.release() } catch (_: Exception) {}
-        capturer = null; track = null; source = null; helper = null; pc = null; factory = null; egl = null; wifiLock = null
+        wifiLock = null
+        unpinWifi()
         pendingIce.clear(); remoteSet = false; lastBytes = 0; lastStatsAt = 0
-        CastState.update { phase = CastState.Phase.IDLE; detail = ""; message = reason }
-        if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
-        stopSelf()
+
+        // take the resources away from this object, then release them elsewhere
+        val cap = capturer; val pb = playback; val at = audioTrack; val asrc = audioSource; val vt = track; val vs = source
+        val st = helper; val peer = pc; val f = factory; val dev = adm; val apf = audioProcessing; val gl = egl
+        capturer = null; playback = null; audioTrack = null; audioSource = null; track = null; source = null
+        helper = null; pc = null; factory = null; adm = null; audioProcessing = null; egl = null
+
+        Thread({
+            val t0 = System.currentTimeMillis()
+            try { cap?.stopCapture() } catch (_: Exception) {}
+            try { cap?.dispose() } catch (_: Exception) {}
+            try { pb?.stop() } catch (_: Exception) {}
+            try { at?.dispose() } catch (_: Exception) {}
+            try { asrc?.dispose() } catch (_: Exception) {}
+            try { vt?.dispose() } catch (_: Exception) {}
+            try { vs?.dispose() } catch (_: Exception) {}
+            try { st?.dispose() } catch (_: Exception) {}
+            try { peer?.close(); peer?.dispose() } catch (_: Exception) {}
+            try { f?.dispose() } catch (_: Exception) {}
+            try { dev?.release() } catch (_: Exception) {}
+            // (not apf.destroy(): the PeerConnectionFactory already frees that native object when it is disposed; calling it again crashes)
+            try { gl?.release() } catch (_: Exception) {}
+            Log.i(TAG, "resources released in ${System.currentTimeMillis() - t0} ms")
+            ui.post {
+                if (!stopped) return@post                      // a new cast has started meanwhile: leave the service running
+                if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
+                stopSelf()
+            }
+        }, "CastRelease").start()
     }
 
     override fun onDestroy() {

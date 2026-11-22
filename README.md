@@ -55,7 +55,7 @@
 | 🔎 **Automatic discovery** | The TV lists every PC on the network by name. No typing IP addresses |
 | 🔢 **6-digit pairing** | You choose the PC and enter the code shown on the TV; nothing connects automatically |
 | 🌐 **Browser mode** | Cast to another PC, a phone or a tablet through a web page, with a one-click Copy button and automatic Wi-Fi address detection |
-| 📱 **Phone to PC** | An Android app (Cast Sender) casts your phone's screen to a PC, which shows it in a new **Receive** tab |
+| 📱 **Phone to PC** | An Android app (Cast Sender) casts your phone's screen **and sound** to a PC, which shows it in a new **Receive** tab |
 | 📊 **Live stream info** | Codec, decoder, resolution, fps and packet loss on the PC and the TV, with a show/hide switch |
 | ✨ **Glass-style TV UI** | Onboarding on first launch, PC cards, and a pairing screen |
 | 📦 **Installer** | A Windows setup wizard with shortcuts and an uninstaller |
@@ -183,16 +183,19 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 ```
 The file is `android\phone\build\outputs\apk\release\phone-release.apk`.
 
-**Install it on the phone:** copy the APK to the phone (USB cable, Google Drive, …), open it, and allow **Install unknown apps** when Android asks. Needs Android 7 or newer.
+**Install it on the phone:** copy the APK to the phone (USB cable, Google Drive, …), open it, and allow **Install unknown apps** when Android asks. Needs Android 7 or newer (Android 10 or newer for sound).
 
 **Use it:**
 1. On the PC, open the Cast app and go to the **Receive** tab. It shows a 6-digit code.
 2. On the phone, open **Cast Sender**. It lists the PCs on your Wi-Fi: pick yours.
-3. Enter the code, choose a quality, and press **Start casting**. Android asks for permission to share your screen (choose **Share entire screen**).
+3. Enter the code, choose a quality, leave **Share phone sound** on if you want the PC to play the phone's sound, and press **Start casting**. Android asks for permission to share your screen (choose **Share entire screen**) and, for sound, to "record audio".
 4. The phone's screen appears in the PC's Receive tab. Double-click it (or press **Full screen**) to enlarge it. Rotating the phone resizes the picture.
-5. Stop from the app, from the notification, or from the PC.
+5. With sound on, **Play test sound** on the casting screen plays a short chime so you can check the PC hears it.
+6. Stop from the app, from the notification, or from the PC.
 
-Good to know: this first version sends **video only (no sound)**, and a still screen sends very few frames, so the picture can look frozen until something moves. Sound and a steadier frame rate are planned.
+Good to know:
+- **Sound** is the phone's playback sound (music, videos, games), sent as **mono**. Android lets each app decide whether its sound may be captured: streaming apps and some games block it, so they arrive silent. The microphone permission is needed by Android for this, but the microphone itself is not used. The phone keeps playing sound on its own speaker too.
+- A still screen sends very few frames, so the picture can look frozen until something moves. A steadier frame rate is planned.
 
 ---
 
@@ -250,6 +253,8 @@ The PC page remembers Quality, Always smooth and Show stream info. The TV app re
 │        ├─ MainActivity.kt        PC list, code entry, casting screen
 │        ├─ CastService.kt         Foreground service: capture + WebRTC sender
 │        ├─ ProjectionCapturer.kt  Screen capture that survives rotation
+│        ├─ PlaybackAudio.kt       Captures the phone's sound and feeds it to WebRTC
+│        ├─ TestTone.kt            "Play test sound" chime
 │        └─ Quality.kt             Quality presets
 ├─ assets/                 Logo and Windows icon
 └─ docs/screenshots/       Images used in this README
@@ -308,7 +313,7 @@ Choose **Smooth** quality, move closer to the router (5 GHz works best), and che
 ## Limitations and security
 
 - Designed for a **trusted home network**. The 6-digit code is a simple pairing code, not strong authentication, and signaling is not encrypted. Do not use it on public or shared Wi-Fi.
-- One PC to one TV at a time. Primary screen only. The phone app sends to a PC only (not to a TV yet) and has no sound yet. Windows only on the PC side (the laptop volume control and system-audio capture use Windows features).
+- One PC to one TV at a time. Primary screen only. The phone app sends to a PC only (not to a TV yet); its sound is mono. Windows only on the PC side (the laptop volume control and system-audio capture use Windows features).
 - Works on the local network only (no internet relay).
 - DRM-protected video (Netflix and similar) shows black; that is a platform restriction.
 - The laptop volume control changes Windows' master volume.

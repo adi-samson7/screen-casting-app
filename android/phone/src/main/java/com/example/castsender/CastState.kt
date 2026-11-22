@@ -11,6 +11,7 @@ object CastState {
     @Volatile var target = ""          // name of the PC being cast to
     @Volatile var detail = ""          // live line: "864×1920 · 30 fps · 5.8 Mbps · H264 · MediaCodec"
     @Volatile var message = ""         // why the last cast ended (shown on the home screen)
+    @Volatile var audioOn = false      // the phone's sound is being sent
 
     /** Set by the visible screen; called on the main thread whenever something changed. */
     var listener: (() -> Unit)? = null

@@ -38,6 +38,7 @@ class MainActivity : Activity() {
     private companion object {
         const val REQ_CAPTURE = 100
         const val REQ_NOTIFY = 101
+        const val REQ_MIC = 102
         const val PREFS = "cast_sender_prefs"
         val BG = Color.parseColor("#060A15")
     }
@@ -51,6 +52,7 @@ class MainActivity : Activity() {
     private var homeList: LinearLayout? = null
     private var castTitle: TextView? = null
     private var castLive: TextView? = null
+    private var testSoundBtn: View? = null
     private var shown: List<String> = emptyList()
 
     // the PC being paired with
@@ -59,6 +61,9 @@ class MainActivity : Activity() {
     private var quality = Quality.ALL[1]
     private var codeInput: EditText? = null
     private var pairError: TextView? = null
+    private var shareSound = true
+    private var askedNotify = false
+    private var askedMic = false
 
     private fun dp(v: Int) = Glass.dp(this, v)
     private val prefs get() = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -68,6 +73,7 @@ class MainActivity : Activity() {
         window.statusBarColor = BG
         window.navigationBarColor = BG
         quality = Quality.of(prefs.getString("quality", null))
+        shareSound = prefs.getBoolean("sound", true)
 
         val root = FrameLayout(this)
         root.addView(BackdropView(this), FrameLayout.LayoutParams(-1, -1))
@@ -237,6 +243,31 @@ class MainActivity : Activity() {
         col.addView(qrow, LinearLayout.LayoutParams(-1, -2))
         col.addView(TextView(this).apply { text = "Smooth is easiest on the phone's battery and Wi-Fi."; textSize = 12f; setTextColor(Glass.FAINT); setPadding(0, dp(8), 0, 0) })
 
+        // sound: needs Android 10+ (Android's playback capture)
+        val canSound = Build.VERSION.SDK_INT >= 29
+        val soundRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = Glass.panel(this@MainActivity, 28); setPadding(dp(20), dp(12), dp(12), dp(12))
+        }
+        soundRow.addView(TextView(this).apply {
+            text = if (canSound) "Share phone sound" else "Phone sound needs Android 10 or newer"
+            textSize = 16f; setTextColor(if (canSound) Glass.TEXT else Glass.SUB)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        if (canSound) soundRow.addView(Glass.pill(this, if (shareSound) "On" else "Off", shareSound).apply {
+            textSize = 14f; setPadding(dp(22), dp(8), dp(22), dp(8))
+            setOnClickListener {
+                shareSound = !shareSound
+                prefs.edit().putBoolean("sound", shareSound).apply()
+                text = if (shareSound) "On" else "Off"
+                background = Glass.focusable(this@MainActivity, 40, if (shareSound) Color.parseColor("#2DD4BF") else null)
+            }
+        })
+        col.addView(soundRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) })
+        if (canSound) col.addView(TextView(this).apply {
+            text = "Some apps (streaming apps, some games) block sound capture. The phone keeps playing sound too."
+            textSize = 12f; setTextColor(Glass.FAINT); setPadding(0, dp(8), 0, 0)
+        })
+
         col.addView(Glass.pill(this, "Start casting", true).apply {
             textSize = 18f; setPadding(dp(20), dp(16), dp(20), dp(16)); setOnClickListener { startPressed() }
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(26) })
@@ -253,15 +284,28 @@ class MainActivity : Activity() {
         if (code.length != 6) { pairError?.text = "Enter the 6-digit code shown on the PC."; return }
         pairError?.text = ""
         prefs.edit().putString("addr", targetAddr).apply()
-        // Android 13+: ask once for permission to show the "casting" notification, then continue either way
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
-        else askScreenCapture()
+        askedNotify = false; askedMic = false
+        nextStep()
+    }
+
+    private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+    /** Permission steps, one after the other; a "no" never blocks the cast (it just goes without that feature). */
+    private fun nextStep() {
+        // Android 13+: the "casting" notification
+        if (Build.VERSION.SDK_INT >= 33 && !askedNotify && !granted(Manifest.permission.POST_NOTIFICATIONS)) {
+            askedNotify = true; requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY); return
+        }
+        // Android 10+: capturing the phone's sound needs the microphone permission
+        if (shareSound && Build.VERSION.SDK_INT >= 29 && !askedMic && !granted(Manifest.permission.RECORD_AUDIO)) {
+            askedMic = true; requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC); return
+        }
+        askScreenCapture()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_NOTIFY) askScreenCapture()
+        if (requestCode == REQ_NOTIFY || requestCode == REQ_MIC) nextStep()
     }
 
     /** The system dialog: "Start recording or casting with Cast Sender?" */
@@ -279,6 +323,7 @@ class MainActivity : Activity() {
         val i = Intent(this, CastService::class.java).setAction(CastService.ACTION_START)
             .putExtra(CastService.EXTRA_ADDR, targetAddr).putExtra(CastService.EXTRA_NAME, targetName)
             .putExtra(CastService.EXTRA_CODE, code).putExtra(CastService.EXTRA_QUALITY, quality.key)
+            .putExtra(CastService.EXTRA_AUDIO, shareSound)
             .putExtra(CastService.EXTRA_DATA, data)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
         showCasting()
@@ -304,6 +349,11 @@ class MainActivity : Activity() {
             background = Glass.focusable(this@MainActivity, 40, Color.parseColor("#E5484D"))
             setOnClickListener { startService(Intent(this@MainActivity, CastService::class.java).setAction(CastService.ACTION_STOP)) }
         }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(28) })
+        // check that the PC hears the phone (only shown while sound is really being sent)
+        card.addView(Glass.pill(this, "Play test sound", false).apply {
+            textSize = 14f; setPadding(dp(22), dp(10), dp(22), dp(10)); visibility = View.GONE; setOnClickListener { TestTone.play() }
+            testSoundBtn = this
+        }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(14) })
         card.addView(TextView(this).apply {
             text = "You can leave this app. A notification keeps the cast running and has a Stop button."
             textSize = 12f; setTextColor(Glass.FAINT); gravity = Gravity.CENTER; setPadding(0, dp(18), 0, 0)
@@ -317,5 +367,6 @@ class MainActivity : Activity() {
         val live = CastState.phase == CastState.Phase.CASTING
         castTitle?.text = if (live) "Casting to ${CastState.target}" else "Connecting to ${CastState.target.ifEmpty { targetName }}…"
         castLive?.text = if (live) CastState.detail.ifEmpty { "Live" } else "Waiting for the PC"
+        testSoundBtn?.visibility = if (CastState.audioOn) View.VISIBLE else View.GONE
     }
 }
